@@ -32,6 +32,7 @@ const {
   estaEmModoIA,
   definirContexto,
   obterContexto,
+  resetarConversa,
 } = require("./session");
 const { extrairCNPJ, formatarCNPJ } = require("./identify");
 const {
@@ -41,7 +42,7 @@ const {
 } = require("./accon");
 const { gerarRespostaIA } = require("./ia");
 const { obterImagemBase64 } = require("./imagem");
-const { agendarProcessamento } = require("./buffer");
+const { agendarProcessamento, limparBuffer } = require("./buffer");
 
 // --------------------------------------
 // Mensagens fixas (notas internas)
@@ -57,7 +58,13 @@ const MSG_COMANDOS =
   "#ativar\n→ Ativa a IA nesta conversa.\n\n" +
   "#desativar\n→ Desativa a IA nesta conversa.\n\n" +
   "#cnpj [CNPJ]\n→ Define manualmente o CNPJ da empresa e coleta os dados da API Accon.\n\n" +
+  "#resetar\n→ Remove todos os dados armazenados pela IA nesta conversa e reinicia o atendimento do zero.\n\n" +
   "#comandos\n→ Exibe esta lista de comandos.";
+
+const MSG_RESET =
+  "🔄 Conversa resetada com sucesso.\n\n" +
+  "Todos os dados da IA foram removidos.\n\n" +
+  "Na próxima interação será necessário informar novamente o CNPJ da empresa para iniciar o atendimento.";
 
 // ======================================
 // ENTRADA
@@ -123,7 +130,7 @@ async function handleWebhook(body) {
 // COMANDOS (notas internas)
 // ======================================
 
-const COMANDOS = ["#desativar", "#ativar", "#cnpj", "#comandos"];
+const COMANDOS = ["#desativar", "#ativar", "#cnpj", "#resetar", "#comandos"];
 
 function ehComando(texto) {
   const t = texto.toLowerCase();
@@ -153,6 +160,15 @@ async function executarComando(chatId, texto) {
 
   if (t.startsWith("#cnpj")) {
     await comandoCnpj(chatId, texto);
+    return;
+  }
+
+  if (t.startsWith("#resetar")) {
+    // apaga TODO o estado da conversa (contexto + agrupamento pendente).
+    // Mantém a IA ativada; a próxima interação começa do zero (sem CNPJ).
+    resetarConversa(chatId);
+    limparBuffer(chatId);
+    await enviarNotaInterna(chatId, MSG_RESET);
     return;
   }
 
@@ -220,8 +236,14 @@ async function comandoCnpj(chatId, texto) {
 // memória de conversa à IA. Ignora comandos (#...) para não poluir.
 // --------------------------------------
 
-function montarTranscricao(mensagens) {
+function montarTranscricao(mensagens, resetEm = 0) {
   return mensagens
+    .filter((m) => {
+      // após um #resetar, ignora o que veio ANTES do reset (esquece o passado)
+      if (!resetEm) return true;
+      const ts = Date.parse(m?.eventAtUTC || m?.EventAtUTC || "");
+      return Number.isNaN(ts) ? true : ts >= resetEm;
+    })
     .map((m) => {
       const txt = (m?.content || m?.Content || "").trim();
       if (!txt) return "";
@@ -244,13 +266,15 @@ async function processarAgrupado({ chatId, pergunta, imagens }) {
   if (!pergunta && (!imagens || imagens.length === 0)) return;
 
   // PRIORIDADE 1: dados da empresa (API Accon), já coletados na sessão
-  const dadosEmpresa = obterContexto(chatId).empresa?.dados || "";
+  const ctx = obterContexto(chatId);
+  const dadosEmpresa = ctx.empresa?.dados || "";
 
-  // PRIORIDADE 2: contexto recente da conversa (memória)
+  // PRIORIDADE 2: contexto recente da conversa (memória), ignorando o que
+  // veio antes de um eventual #resetar.
   let transcricao = "";
   try {
     const mensagens = await buscarHistoricoChat(chatId, 20);
-    transcricao = montarTranscricao(mensagens);
+    transcricao = montarTranscricao(mensagens, ctx.resetEm || 0);
   } catch {}
 
   // PRIORIDADE 4: documentação (apenas spaces públicos — Central de Ajuda)

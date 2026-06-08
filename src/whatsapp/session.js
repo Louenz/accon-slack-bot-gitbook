@@ -52,6 +52,17 @@ function empresaIdentificada(chatId) {
   return Boolean(obterContexto(chatId).empresa);
 }
 
+// --------------------------------------
+// Reset completo da conversa (#resetar): apaga TODO o contexto coletado
+// (empresa, CNPJ, versão, flags, memória). Mantém o modo IA ativo e marca
+// o momento do reset (`resetEm`) para o transcript "esquecer" o passado.
+// --------------------------------------
+
+function resetarConversa(chatId) {
+  contextoPorChat.delete(chatId);
+  contextoPorChat.set(chatId, { resetEm: Date.now() });
+}
+
 module.exports = {
   ativarModoIA,
   desativarModoIA,
@@ -59,4 +70,5 @@ module.exports = {
   obterContexto,
   definirContexto,
   empresaIdentificada,
+  resetarConversa,
 };

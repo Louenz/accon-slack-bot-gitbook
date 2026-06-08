@@ -75,6 +75,7 @@ Os comandos são interpretados **apenas em notas internas** (do atendente). O bo
 | `#ativar` | Ativa a IA nesta conversa |
 | `#desativar` | Desativa a IA e limpa o estado da conversa |
 | `#cnpj [CNPJ]` | Define o CNPJ, consulta a API Accon e salva empresa + versão |
+| `#resetar` | Apaga **todo** o estado da IA na conversa (empresa, CNPJ, versão, memória, agrupamento pendente) e reinicia do zero — mantém a IA ativada |
 | `#comandos` | Exibe a lista de comandos |
 
 O `#cnpj` aceita o CNPJ em **qualquer formato** (normaliza removendo pontos,

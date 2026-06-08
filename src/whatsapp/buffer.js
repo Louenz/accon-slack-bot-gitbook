@@ -42,6 +42,14 @@ function agendarProcessamento(chatId, { texto, imagem }, processar) {
   if (buf.timer.unref) buf.timer.unref();
 }
 
+// Descarta qualquer agrupamento pendente de um chat (usado no #resetar).
+function limparBuffer(chatId) {
+  const buf = buffers.get(chatId);
+  if (buf && buf.timer) clearTimeout(buf.timer);
+  buffers.delete(chatId);
+}
+
 module.exports = {
   agendarProcessamento,
+  limparBuffer,
 };
