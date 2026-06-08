@@ -112,12 +112,17 @@ Para lojas 2.0, a resposta da IA é gerada com mais contexto e qualidade:
   documentação → resposta.
 
 **Para testar (passo a passo):**
-1. `npm run dev` (sobe Slack na `3000` e o webhook do WhatsApp na `3001`).
+1. `npm run dev` (Slack via Socket Mode — sem porta; webhook do WhatsApp na `3001`).
 2. Exponha a porta `3001` com um túnel público, ex.: `ngrok http 3001`.
 3. No painel da Umbler: **Módulos → Integrações API/Webhook → Configurar
    Webhook**, aponte a URL pública (a do ngrok) e assine o evento **Message**.
-4. Numa conversa de teste no WhatsApp, envie `4` e depois uma pergunta. A
-   resposta aparece como **nota interna** no Umbler.
+4. Numa conversa de teste, um atendente envia a nota interna `#ativar` e depois
+   `#cnpj [CNPJ]`. As respostas aparecem como **nota interna** no Umbler.
+
+> **Slack e WhatsApp ao mesmo tempo:** o Slack usa **Socket Mode** (conexão
+> WebSocket de saída — não precisa de URL pública nem de porta), então o ngrok
+> fica livre para o WhatsApp (`3001`). Os dois rodam juntos sem conflito. O
+> Slack exige um **App-Level Token** (`xapp-...`) em `SLACK_APP_TOKEN`.
 
 > Observação: o "modo IA" fica em memória, então **zera quando o servidor
 > reinicia** (o cliente precisa enviar `4` de novo). Para testes é suficiente.
@@ -129,6 +134,7 @@ Crie um arquivo `.env` na raiz com:
 ```
 SLACK_BOT_TOKEN=
 SLACK_SIGNING_SECRET=
+SLACK_APP_TOKEN=        # App-Level Token (xapp-...) — Socket Mode
 OPENAI_API_KEY=
 GITBOOK_TOKEN=
 BOT_USER_ID=

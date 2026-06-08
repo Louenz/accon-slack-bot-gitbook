@@ -16,6 +16,8 @@ require("dotenv").config();
 const env = {
   SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN,
   SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET,
+  // App-Level Token (xapp-...) para Socket Mode — Slack não precisa de URL pública
+  SLACK_APP_TOKEN: process.env.SLACK_APP_TOKEN,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   GITBOOK_TOKEN: process.env.GITBOOK_TOKEN,
   BOT_USER_ID: process.env.BOT_USER_ID,
