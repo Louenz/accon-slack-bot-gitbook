@@ -1,9 +1,11 @@
 {
   "name": "bot-slack-gitbook",
   "version": "1.0.0",
-  "description": "",
+  "description": "Robô de ajuda do Slack que responde dúvidas com base na documentação do GitBook + OpenAI",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -15,8 +17,12 @@
     "axios": "^1.16.0",
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "graphql-request": "^7.4.0",
     "openai": "^6.37.0",
     "string-similarity": "^4.0.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }
