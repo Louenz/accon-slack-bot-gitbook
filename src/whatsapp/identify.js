@@ -2,54 +2,35 @@
 // WHATSAPP: IDENTIFICAÇÃO DA EMPRESA
 // ======================================
 //
-// Detecta na mensagem do cliente os dados que identificam a empresa.
-// Hoje SOMENTE o CNPJ está implementado (detecção + validação). Marca e
-// ID da loja ficam como stubs preparados para o futuro — quando houver
-// um formato definido, basta implementar detectarMarca/detectarIdLoja.
+// A API da Accon só consulta por CNPJ, então a identificação é feita
+// EXCLUSIVAMENTE por CNPJ. O cliente pode informar em QUALQUER formato:
+// o sistema normaliza (remove pontos, barras, hífens, espaços e demais
+// caracteres) e, se sobrarem 14 dígitos, considera um CNPJ válido para
+// consulta — sem exigir formatação correta do cliente.
 
 // --------------------------------------
-// Valida um CNPJ (14 dígitos) pelos dígitos verificadores.
+// Normaliza um valor mantendo apenas os dígitos.
+// "54.706.921/0001-01" -> "54706921000101"
 // --------------------------------------
 
-function cnpjValido(digitos) {
-  if (!/^\d{14}$/.test(digitos)) return false;
-  if (/^(\d)\1{13}$/.test(digitos)) return false; // rejeita 000... 111...
-
-  const calcDigito = (base) => {
-    const len = base.length;
-    let pos = len - 7;
-    let soma = 0;
-
-    for (let i = len; i >= 1; i--) {
-      soma += Number(base[len - i]) * pos--;
-      if (pos < 2) pos = 9;
-    }
-
-    const resto = soma % 11;
-    return resto < 2 ? 0 : 11 - resto;
-  };
-
-  const d1 = calcDigito(digitos.slice(0, 12));
-  const d2 = calcDigito(digitos.slice(0, 13));
-
-  return d1 === Number(digitos[12]) && d2 === Number(digitos[13]);
+function normalizarCNPJ(valor = "") {
+  return String(valor).replace(/\D/g, "");
 }
 
 // --------------------------------------
-// Procura um CNPJ válido dentro do texto.
-// Aceita formatado (54.706.921/0001-01) ou só dígitos.
+// Procura no texto um número que, após normalização, tenha 14 dígitos.
+// Tolera pontuação ausente/errada, espaços e barras/hífens faltando.
 // Retorna os 14 dígitos (sem pontuação) ou null.
 // --------------------------------------
 
 function extrairCNPJ(texto = "") {
+  // candidatos = sequências de dígitos com separadores comuns (. - / e espaço)
   const candidatos =
-    String(texto).match(
-      /(?<!\d)\d{2}[.\s]?\d{3}[.\s]?\d{3}[/\s]?\d{4}[-\s]?\d{2}(?!\d)/g
-    ) || [];
+    String(texto).match(/\d[\d.\-/ ]{12,}\d/g) || [];
 
   for (const bruto of candidatos) {
-    const digitos = bruto.replace(/\D/g, "");
-    if (digitos.length === 14 && cnpjValido(digitos)) {
+    const digitos = normalizarCNPJ(bruto);
+    if (digitos.length === 14) {
       return digitos;
     }
   }
@@ -58,7 +39,8 @@ function extrairCNPJ(texto = "") {
 }
 
 // --------------------------------------
-// Formata 14 dígitos como 54.706.921/0001-01.
+// Formata 14 dígitos como 54.706.921/0001-01 (usado na exibição e no
+// envio à API, que aceita o formato pontuado).
 // --------------------------------------
 
 function formatarCNPJ(digitos) {
@@ -68,25 +50,8 @@ function formatarCNPJ(digitos) {
   );
 }
 
-// --------------------------------------
-// STUBS (ainda não implementados — só CNPJ está ativo hoje).
-// Retornam null para que o fluxo nunca dispare a busca por marca/ID.
-// --------------------------------------
-
-function detectarMarca(_texto = "") {
-  // TODO: implementar detecção de nome da marca quando houver critério.
-  return null;
-}
-
-function detectarIdLoja(_texto = "") {
-  // TODO: implementar detecção de ID da loja quando houver formato definido.
-  return null;
-}
-
 module.exports = {
-  cnpjValido,
+  normalizarCNPJ,
   extrairCNPJ,
   formatarCNPJ,
-  detectarMarca,
-  detectarIdLoja,
 };

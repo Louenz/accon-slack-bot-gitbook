@@ -4,11 +4,10 @@
 //
 // Guarda, por chat:
 //  - se está em "modo IA" (cliente digitou o número 4);
-//  - o contexto do atendimento (empresa identificada, marca, ID da loja).
+//  - o contexto do atendimento (empresa identificada pelo CNPJ).
 //
 // Enquanto o chat estiver em modo IA, cada mensagem do cliente é tratada
-// pelo bot. O contexto evita pedir os mesmos dados duas vezes no mesmo
-// atendimento.
+// pelo bot. O contexto evita pedir o CNPJ duas vezes no mesmo atendimento.
 //
 // OBS: o estado fica em memória, então ZERA quando o servidor reinicia.
 // Para testar é suficiente. Se precisar persistir entre reinícios ou
@@ -16,7 +15,7 @@
 
 const chatsEmModoIA = new Set();
 
-// chatId -> { empresa?: {...}, marca?: string, idLoja?: string }
+// chatId -> { empresa?: { cnpj, dados } }
 const contextoPorChat = new Map();
 
 // --------------------------------------

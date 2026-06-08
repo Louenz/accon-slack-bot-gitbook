@@ -41,7 +41,7 @@ src/
     parser.js            Lê o payload do webhook da Umbler
     session.js           Estado "modo IA" + contexto da empresa por chat (em memória)
     dedupe.js            Evita processar o mesmo evento duas vezes
-    identify.js          Detecção/validação de CNPJ (e stubs de marca/ID da loja)
+    identify.js          Detecção e normalização de CNPJ (aceita qualquer formato)
     accon.js             Consulta a API da Accon (dados da empresa por CNPJ)
 ```
 
@@ -72,18 +72,23 @@ documentação do GitBook. Enviar **`0`** (ou `sair`/`menu`) desativa.
 
 ### Identificação automática da empresa (por CNPJ)
 
-Depois do `4`, antes de responder dúvidas técnicas, o bot tenta identificar a
-empresa do cliente:
+Depois do `4`, antes de responder dúvidas técnicas, o bot identifica a empresa
+do cliente. A API da Accon consulta **apenas por CNPJ**, então o CNPJ é
+**obrigatório**:
 
-- Se a mensagem contém um **CNPJ válido** → posta `🔄 Coletando dados da
-  empresa...`, consulta a **API da Accon** (`merchant-info`, Basic Auth) e posta
+- Se a mensagem contém um **CNPJ em qualquer formato** (o sistema normaliza —
+  remove pontos, barras, hífens e espaços — e aceita se sobrarem 14 dígitos) →
+  posta `🔄 Coletando dados da empresa...`, consulta a **API da Accon**
+  (`merchant-info`, Basic Auth) e posta
   `✅ Dados coletados` com **todos** os campos retornados (nada é resumido). Os
   dados ficam salvos no contexto da conversa — não pergunta de novo no mesmo
   atendimento.
-- Se a mensagem **não** traz CNPJ/marca/ID → pede um dos dados de identificação.
-- Marca e ID da loja ainda **não** disparam busca (só CNPJ está implementado);
-  a estrutura já está pronta em `src/whatsapp/identify.js` (`detectarMarca` /
-  `detectarIdLoja`) para o futuro.
+- Se **não** houver CNPJ → o bot **sempre** pede o CNPJ, independentemente de o
+  cliente ter informado marca, ID da loja, nome do estabelecimento ou da rede
+  (esses dados não identificam a empresa):
+
+  > Para que eu consiga identificar sua empresa e coletar os dados do cadastro,
+  > preciso que me informe o CNPJ da empresa.
 
 O contexto é limpo quando o cliente envia `0`/`sair`/`menu`.
 

@@ -27,33 +27,20 @@ const {
   definirContexto,
   empresaIdentificada,
 } = require("./session");
-const {
-  extrairCNPJ,
-  formatarCNPJ,
-  detectarMarca,
-  detectarIdLoja,
-} = require("./identify");
+const { extrairCNPJ, formatarCNPJ } = require("./identify");
 const { buscarDadosEmpresa, formatarDadosEmpresa } = require("./accon");
 
 // --------------------------------------
 // Mensagens fixas (notas internas)
 // --------------------------------------
+//
+// A API da Accon só consulta por CNPJ. Por isso, qualquer outro dado
+// (marca, ID da loja, nome da rede, etc.) NÃO é suficiente: sem CNPJ,
+// o bot sempre pede o CNPJ.
 
-const MSG_PEDIR_DADOS =
-  "Antes de continuar, poderia me informar um dos dados abaixo?\n\n" +
-  "• CNPJ da empresa\n" +
-  "• Nome da marca\n" +
-  "• ID da loja";
-
-const MSG_SO_MARCA =
-  "Identifiquei a marca informada.\n\n" +
-  "Atualmente consigo consultar automaticamente apenas por CNPJ.\n\n" +
-  "Poderia me informar o CNPJ da empresa?";
-
-const MSG_SO_ID_LOJA =
-  "Identifiquei o ID da loja informado.\n\n" +
-  "Atualmente consigo consultar automaticamente apenas por CNPJ.\n\n" +
-  "Poderia me informar o CNPJ da empresa?";
+const MSG_PEDIR_CNPJ =
+  "Para que eu consiga identificar sua empresa e coletar os dados do " +
+  "cadastro, preciso que me informe o CNPJ da empresa.";
 
 // ======================================
 // ENTRADA
@@ -120,49 +107,34 @@ async function handleWebhook(body) {
 // ======================================
 
 async function identificarEmpresa(chatId, texto) {
-  // 1) CNPJ -> busca imediata na API da Accon (sem perguntas adicionais)
   const cnpjDigitos = extrairCNPJ(texto);
-  if (cnpjDigitos) {
-    const cnpj = formatarCNPJ(cnpjDigitos);
 
-    await enviarNotaInterna(chatId, "🔄 Coletando dados da empresa...");
-
-    try {
-      const dados = await buscarDadosEmpresa(cnpj);
-      definirContexto(chatId, { empresa: { cnpj, dados } });
-      await enviarNotaInterna(chatId, formatarDadosEmpresa(dados, cnpj));
-    } catch (error) {
-      console.log(
-        "❌ Erro ao consultar a API Accon:",
-        error.response?.status,
-        error.message
-      );
-      await enviarNotaInterna(
-        chatId,
-        "❌ Não consegui coletar os dados dessa empresa agora. Tente novamente em instantes."
-      );
-    }
+  // Sem CNPJ válido -> SEMPRE pedir o CNPJ (marca/ID/nome não bastam).
+  if (!cnpjDigitos) {
+    await enviarNotaInterna(chatId, MSG_PEDIR_CNPJ);
     return;
   }
 
-  // 2) Apenas nome da marca -> armazena para uso futuro (ainda não busca)
-  const marca = detectarMarca(texto);
-  if (marca) {
-    definirContexto(chatId, { marca });
-    await enviarNotaInterna(chatId, MSG_SO_MARCA);
-    return;
-  }
+  // Com CNPJ -> busca imediata na API da Accon (sem perguntas adicionais).
+  const cnpj = formatarCNPJ(cnpjDigitos);
 
-  // 3) Apenas ID da loja -> armazena para uso futuro (ainda não busca)
-  const idLoja = detectarIdLoja(texto);
-  if (idLoja) {
-    definirContexto(chatId, { idLoja });
-    await enviarNotaInterna(chatId, MSG_SO_ID_LOJA);
-    return;
-  }
+  await enviarNotaInterna(chatId, "🔄 Coletando dados da empresa...");
 
-  // 4) Nada informado -> pede um dos dados de identificação
-  await enviarNotaInterna(chatId, MSG_PEDIR_DADOS);
+  try {
+    const dados = await buscarDadosEmpresa(cnpj);
+    definirContexto(chatId, { empresa: { cnpj, dados } });
+    await enviarNotaInterna(chatId, formatarDadosEmpresa(dados, cnpj));
+  } catch (error) {
+    console.log(
+      "❌ Erro ao consultar a API Accon:",
+      error.response?.status,
+      error.message
+    );
+    await enviarNotaInterna(
+      chatId,
+      "❌ Não consegui coletar os dados dessa empresa agora. Tente novamente em instantes."
+    );
+  }
 }
 
 // ======================================
