@@ -37,7 +37,7 @@ src/
     actions.js           Botões: ver conversas / abrir thread — Slack
   whatsapp/
     server.js            Servidor Express que recebe o webhook da Umbler
-    handler.js           Lógica do bot (modo IA, identifica empresa, responde dúvidas)
+    handler.js           Lógica do bot (comandos de atendente, versão, respostas)
     parser.js            Lê o payload do webhook da Umbler
     session.js           Estado "modo IA" + contexto da empresa por chat (em memória)
     dedupe.js            Evita processar o mesmo evento duas vezes
@@ -50,9 +50,9 @@ src/
 
 ## Bot do WhatsApp (Umbler / uTalk)
 
-Quando o cliente envia **`4`** na conversa, aquele chat entra em "modo IA": a
-partir daí cada pergunta dele é respondida automaticamente com base na
-documentação do GitBook. Enviar **`0`** (ou `sair`/`menu`) desativa.
+A IA é controlada **manualmente pelos atendentes**, através de **notas internas**
+da Umbler — o cliente não ativa nada. A IA só age em conversas onde foi
+explicitamente ativada, e o estado é **individual por conversa**.
 
 > 🔒 **Segurança:** o WhatsApp busca **apenas** no space público
 > **"Central de ajuda Accon"**. A **"Base de conhecimento Accon"** (interna,
@@ -62,60 +62,37 @@ documentação do GitBook. Enviar **`0`** (ou `sair`/`menu`) desativa.
 > ⚠️ **Fase de teste:** hoje o bot responde como **nota interna**
 > (`IsPrivate: true`) — a resposta aparece na conversa **só para a equipe**, o
 > cliente **não vê**. Para colocar no ar de verdade, troque `IsPrivate` para
-> `false` em `src/services/umbler.js` (ou troque para o endpoint
-> `/messages/simplified/` com `FromPhone`/`ToPhone`).
+> `false` em `src/services/umbler.js`.
 
-**Como funciona por dentro:**
-1. A Umbler chama o webhook (porta `UMBLER_PORT`, padrão `3001`) a cada mensagem.
-2. O bot ignora notas internas e mensagens de operadores (proteção contra loop) —
-   só reage a mensagens do **cliente**.
-3. Antes de responder dúvidas, **identifica a empresa** (ver abaixo).
-4. Com a empresa identificada, busca no GitBook, gera a resposta com a IA e
-   posta como nota.
+### Comandos (somente em notas internas)
 
-### Identificação automática da empresa (por CNPJ)
+Os comandos são interpretados **apenas em notas internas** (do atendente). O bot
+**nunca** executa comandos enviados pelo cliente e nunca reage às próprias notas
+(só reage a notas que começam com `#`).
 
-Depois do `4`, antes de responder dúvidas técnicas, o bot identifica a empresa
-do cliente. A API da Accon consulta **apenas por CNPJ**, então o CNPJ é
-**obrigatório**.
+| Comando | Ação |
+|---|---|
+| `#ativar` | Ativa a IA nesta conversa |
+| `#desativar` | Desativa a IA e limpa o estado da conversa |
+| `#cnpj [CNPJ]` | Define o CNPJ, consulta a API Accon e salva empresa + versão |
+| `#comandos` | Exibe a lista de comandos |
 
-Ao ativar o modo IA (`4`), o bot primeiro **procura um CNPJ no histórico recente
-da conversa** (últimas ~20 mensagens) — o cliente pode tê-lo informado antes de
-acionar o bot. Se encontrar, consulta a API na hora, **sem pedir de novo**.
-Depois disso:
+O `#cnpj` aceita o CNPJ em **qualquer formato** (normaliza removendo pontos,
+barras, hífens e espaços; aceita se sobrarem 14 dígitos). Responde
+`🔄 Coletando dados da empresa...` e, após o retorno, um resumo:
+`✅ Dados coletados com sucesso.` com **Empresa**, **CNPJ** e **Versão**. Os
+dados ficam vinculados à conversa — não pede o CNPJ de novo.
 
-- Se a mensagem contém um **CNPJ em qualquer formato** (o sistema normaliza —
-  remove pontos, barras, hífens e espaços — e aceita se sobrarem 14 dígitos) →
-  posta `🔄 Coletando dados da empresa...`, consulta a **API da Accon**
-  (`merchant-info`, Basic Auth) e posta
-  `✅ Dados coletados` com **todos** os campos retornados (nada é resumido). Os
-  dados ficam salvos no contexto da conversa — não pergunta de novo no mesmo
-  atendimento.
-- Se **não** houver CNPJ → o bot **sempre** pede o CNPJ, independentemente de o
-  cliente ter informado marca, ID da loja, nome do estabelecimento ou da rede
-  (esses dados não identificam a empresa):
+### Fluxo da mensagem do cliente
 
-  > Para que eu consiga identificar sua empresa e coletar os dados do cadastro,
-  > preciso que me informe o CNPJ da empresa.
+Quando o **cliente** manda uma mensagem, o bot verifica, nesta ordem:
 
-O contexto é limpo quando o cliente envia `0`/`sair`/`menu`.
-
-### Versão da Accon (1.0 x 2.0)
-
-Logo após coletar os dados — e **antes** de qualquer busca no GitBook — o bot
-identifica a versão da Accon pelo campo **`Último pedido 2.0`** retornado pela API:
-
-- **Accon 1.0** (`Último pedido 2.0: N/A`, ou campo ausente) → **não** há
-  atendimento automático: o bot envia a nota abaixo, **encerra a IA** e aguarda
-  atendimento humano. Nunca consulta GitBook nem gera respostas para lojas 1.0.
-
-  > Identifiquei que você ainda está na versão 1.0 da Accon.
-  >
-  > Aguarde o nosso time especialista entrar às 10:00 horas que irão te chamar
-  > assim que iniciar o expediente para te auxiliar.
-
-- **Accon 2.0** (`Último pedido 2.0` com qualquer valor válido) → segue o
-  atendimento automático normalmente (GitBook + IA).
+1. A IA está ativada nesta conversa? (senão, ignora)
+2. Existe CNPJ/empresa salvo? (senão, avisa o atendente uma vez para usar `#cnpj`)
+3. Qual a versão identificada?
+   - **Accon 1.0** (`Último pedido 2.0: N/A`) → o bot informa que a loja é 1.0 e
+     direciona para a equipe; **não** usa IA nem GitBook.
+   - **Accon 2.0** → segue para a resposta automática (GitBook + IA).
 
 ### Qualidade das respostas (lojas 2.0)
 

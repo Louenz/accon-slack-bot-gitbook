@@ -2,23 +2,26 @@
 // WHATSAPP: LÓGICA DO BOT
 // ======================================
 //
-// Fluxo:
-//   1. Cliente digita "4"        -> ativa o modo IA e JÁ procura um CNPJ no
-//      histórico recente da conversa (o cliente pode tê-lo informado antes).
-//   2. IDENTIFICAÇÃO DA EMPRESA  -> antes de responder dúvidas técnicas, o
-//      bot identifica a empresa pelo CNPJ (consulta a API da Accon).
-//   3. VERSÃO DA ACCON           -> Accon 1.0 (campo "Último pedido 2.0" = N/A)
-//      encerra a IA e direciona para a equipe; Accon 2.0 segue o atendimento.
-//   4. Empresa 2.0 identificada  -> responde dúvidas: agrupa as mensagens/
-//      imagens recebidas na janela de espera, junta o histórico recente e os
-//      dados da empresa, e gera a resposta (texto + imagem) como NOTA INTERNA.
-//   5. Cliente digita "0/sair"   -> desativa o modo IA e limpa o contexto.
+// Controle MANUAL pelos atendentes via NOTAS INTERNAS da Umbler.
+// O cliente NÃO ativa mais nada (sem "4"); a IA só age em conversas
+// explicitamente ativadas por um atendente.
+//
+// Comandos (SOMENTE em notas internas):
+//   #ativar           -> ativa a IA nesta conversa
+//   #desativar        -> desativa a IA e limpa o estado
+//   #cnpj [valor]     -> define o CNPJ, consulta a API Accon e salva empresa+versão
+//   #comandos         -> lista os comandos
+//
+// Mensagem do CLIENTE (só processada se a IA estiver ativada):
+//   1. IA ativada?  2. CNPJ salvo?  3. Versão identificada?
+//   -> 1.0: informa para aguardar a equipe (não usa IA/GitBook)
+//   -> 2.0: agrupa (janela de espera) e responde com IA + contexto + imagens
 //
 // Reaproveita a BUSCA do GitBook e o CLIENT OpenAI compartilhados, sem
-// alterar o comportamento do Slack. A geração da resposta do WhatsApp é
-// própria (whatsapp/ia.js).
+// alterar o comportamento do Slack. A geração da resposta é própria
+// (whatsapp/ia.js). Tudo é postado como NOTA INTERNA (cliente não vê).
 
-const { WHATSAPP, PUBLIC_SPACES } = require("../config");
+const { PUBLIC_SPACES } = require("../config");
 const { searchGitBook, getFullPageContent } = require("../services/gitbook");
 const { enviarNotaInterna, buscarHistoricoChat } = require("../services/umbler");
 const { cleanText } = require("../utils/text");
@@ -29,12 +32,11 @@ const {
   estaEmModoIA,
   definirContexto,
   obterContexto,
-  empresaIdentificada,
 } = require("./session");
 const { extrairCNPJ, formatarCNPJ } = require("./identify");
 const {
   buscarDadosEmpresa,
-  formatarDadosEmpresa,
+  extrairNomeEmpresa,
   detectarVersaoAccon,
 } = require("./accon");
 const { gerarRespostaIA } = require("./ia");
@@ -44,20 +46,18 @@ const { agendarProcessamento } = require("./buffer");
 // --------------------------------------
 // Mensagens fixas (notas internas)
 // --------------------------------------
-//
-// A API da Accon só consulta por CNPJ. Por isso, qualquer outro dado
-// (marca, ID da loja, nome da rede, etc.) NÃO é suficiente: sem CNPJ,
-// o bot sempre pede o CNPJ.
 
-const MSG_PEDIR_CNPJ =
-  "Para que eu consiga identificar sua empresa e coletar os dados do " +
-  "cadastro, preciso que me informe o CNPJ da empresa.";
-
-// Loja na Accon 1.0: não há atendimento automático — direciona para a equipe.
 const MSG_ACCON_1_0 =
   "Identifiquei que você ainda está na versão 1.0 da Accon.\n\n" +
   "Aguarde o nosso time especialista entrar às 10:00 horas que irão te " +
   "chamar assim que iniciar o expediente para te auxiliar.";
+
+const MSG_COMANDOS =
+  "📋 Comandos disponíveis\n\n" +
+  "#ativar\n→ Ativa a IA nesta conversa.\n\n" +
+  "#desativar\n→ Desativa a IA nesta conversa.\n\n" +
+  "#cnpj [CNPJ]\n→ Define manualmente o CNPJ da empresa e coleta os dados da API Accon.\n\n" +
+  "#comandos\n→ Exibe esta lista de comandos.";
 
 // ======================================
 // ENTRADA
@@ -66,123 +66,119 @@ const MSG_ACCON_1_0 =
 async function handleWebhook(body) {
   const { chatId, texto, source, isPrivate, file } = extrairDadosWebhook(body);
 
-  // sem chat, não há o que fazer
   if (!chatId) return;
 
-  // --------------------------------------
-  // Proteção contra loop:
-  // ignora notas internas (inclusive as que o próprio bot cria) e
-  // mensagens enviadas por operadores/membros do time.
-  // Só seguimos com mensagens vindas do CLIENTE.
-  // --------------------------------------
-  if (isPrivate === true) return;
-  if (source === "Member") return;
-
-  // texto pode vir vazio (ex.: mensagem só com imagem) — tratado adiante
   const limpo = (texto || "").trim();
 
   // --------------------------------------
-  // Ativa o modo IA quando o cliente digita "4".
-  // Já tenta identificar a empresa por um CNPJ que o cliente possa ter
-  // informado ANTES, no histórico recente da conversa.
+  // NOTAS INTERNAS -> comandos do atendente.
+  // Só reage a notas que começam com um comando conhecido (#...), o que
+  // evita reagir às notas que o próprio bot cria (que nunca começam com #).
+  // Comandos NUNCA são interpretados em mensagens do cliente.
   // --------------------------------------
-  if (limpo === WHATSAPP.TRIGGER) {
-    ativarModoIA(chatId);
-    await enviarNotaInterna(
-      chatId,
-      "🤖 *Modo IA ativado (teste interno).*\n\nA partir de agora as perguntas deste cliente serão respondidas automaticamente como nota interna. Digite 0 para desativar."
-    );
-
-    const cnpjHistorico = await buscarCNPJnoHistorico(chatId);
-    if (cnpjHistorico) {
-      // CNPJ já informado antes -> consulta imediata, sem pedir de novo
-      await coletarEmpresa(chatId, cnpjHistorico);
-    } else {
-      await enviarNotaInterna(chatId, MSG_PEDIR_CNPJ);
+  if (isPrivate === true) {
+    if (ehComando(limpo)) {
+      await executarComando(chatId, limpo);
     }
     return;
   }
 
   // --------------------------------------
-  // Desativa o modo IA
+  // Daqui pra baixo: mensagens NÃO privadas.
+  // Ignora mensagens de operadores (visíveis ao cliente) — só o cliente segue.
   // --------------------------------------
-  if (limpo && WHATSAPP.EXIT.includes(limpo.toLowerCase())) {
-    desativarModoIA(chatId);
-    await enviarNotaInterna(chatId, "🤖 Modo IA desativado.");
-    return;
-  }
+  if (source === "Member") return;
 
-  // só age se o chat estiver em modo IA
+  // a IA só age em conversas explicitamente ativadas
   if (!estaEmModoIA(chatId)) return;
 
-  // --------------------------------------
-  // Antes de responder dúvidas técnicas, identificar a empresa.
-  // Enquanto a empresa não estiver identificada, o bot não responde
-  // dúvidas — ele coleta/solicita os dados de identificação (precisa de
-  // texto com o CNPJ; mensagem só com imagem é ignorada aqui).
-  // --------------------------------------
-  if (!empresaIdentificada(chatId)) {
-    if (limpo) await identificarEmpresa(chatId, limpo);
+  const ctx = obterContexto(chatId);
+
+  // PRIORIDADE 2 e 3: precisa de CNPJ + versão já definidos (via #cnpj)
+  if (!ctx.empresa) {
+    if (!ctx.avisadoSemCnpj) {
+      definirContexto(chatId, { avisadoSemCnpj: true });
+      await enviarNotaInterna(
+        chatId,
+        "⚠️ IA ativada, mas ainda sem CNPJ nesta conversa. Use *#cnpj [CNPJ]* para coletar os dados antes de responder."
+      );
+    }
     return;
   }
 
-  // --------------------------------------
-  // Empresa 2.0 identificada -> NÃO responde na hora: agrupa a mensagem
-  // (texto + imagem) na janela de espera. Quando a janela fechar, processa
-  // tudo junto com histórico + dados da empresa (processarAgrupado).
-  // --------------------------------------
+  // PRIORIDADE 4: loja 1.0 -> não há atendimento automático
+  if (ctx.empresa.versao === "1.0") {
+    await enviarNotaInterna(chatId, MSG_ACCON_1_0);
+    return;
+  }
+
+  // loja 2.0 -> agrupa (texto + imagem) e processa após a janela de espera
   const imagem = await obterImagemBase64(file);
-  if (!limpo && !imagem) return; // nada útil para processar
+  if (!limpo && !imagem) return;
 
-  agendarProcessamento(
-    chatId,
-    { texto: limpo, imagem },
-    processarAgrupado
-  );
+  agendarProcessamento(chatId, { texto: limpo, imagem }, processarAgrupado);
 }
 
 // ======================================
-// IDENTIFICAÇÃO DA EMPRESA
+// COMANDOS (notas internas)
 // ======================================
 
-async function identificarEmpresa(chatId, texto) {
-  const cnpjDigitos = extrairCNPJ(texto);
+const COMANDOS = ["#desativar", "#ativar", "#cnpj", "#comandos"];
 
-  // Sem CNPJ válido -> SEMPRE pedir o CNPJ (marca/ID/nome não bastam).
-  if (!cnpjDigitos) {
-    await enviarNotaInterna(chatId, MSG_PEDIR_CNPJ);
+function ehComando(texto) {
+  const t = texto.toLowerCase();
+  return COMANDOS.some((cmd) => t.startsWith(cmd));
+}
+
+async function executarComando(chatId, texto) {
+  const t = texto.toLowerCase();
+
+  if (t.startsWith("#desativar")) {
+    desativarModoIA(chatId);
+    await enviarNotaInterna(
+      chatId,
+      "⛔ IA desativada com sucesso.\n\nEsta conversa não será mais processada automaticamente."
+    );
     return;
   }
 
-  // Com CNPJ -> busca imediata na API da Accon (sem perguntas adicionais).
-  await coletarEmpresa(chatId, cnpjDigitos);
-}
-
-// --------------------------------------
-// Procura um CNPJ no histórico recente da conversa (últimas mensagens).
-// O histórico tem PRIORIDADE: o cliente pode ter informado o CNPJ antes
-// de acionar o bot. Retorna os 14 dígitos ou null.
-// --------------------------------------
-
-async function buscarCNPJnoHistorico(chatId) {
-  const mensagens = await buscarHistoricoChat(chatId, 20);
-
-  for (const msg of mensagens) {
-    const texto = msg?.content || msg?.Content || "";
-    const cnpj = extrairCNPJ(texto);
-    if (cnpj) return cnpj;
+  if (t.startsWith("#ativar")) {
+    ativarModoIA(chatId);
+    await enviarNotaInterna(
+      chatId,
+      "🤖 IA ativada com sucesso.\n\nA partir de agora esta conversa será analisada automaticamente pela IA."
+    );
+    return;
   }
 
-  return null;
+  if (t.startsWith("#cnpj")) {
+    await comandoCnpj(chatId, texto);
+    return;
+  }
+
+  if (t.startsWith("#comandos")) {
+    await enviarNotaInterna(chatId, MSG_COMANDOS);
+    return;
+  }
 }
 
 // --------------------------------------
-// Consulta a API da Accon e salva os dados da empresa na sessão.
-// Enquanto a sessão estiver ativa, não consulta de novo (o contexto
-// guarda os dados e evita repetir a busca / o pedido de CNPJ).
+// #cnpj [valor] -> normaliza, consulta a API Accon e salva empresa + versão.
 // --------------------------------------
 
-async function coletarEmpresa(chatId, cnpjDigitos) {
+async function comandoCnpj(chatId, texto) {
+  // remove o "#cnpj" e procura um CNPJ no restante
+  const resto = texto.replace(/#cnpj/i, " ");
+  const cnpjDigitos = extrairCNPJ(resto);
+
+  if (!cnpjDigitos) {
+    await enviarNotaInterna(
+      chatId,
+      "⚠️ CNPJ inválido. Use: *#cnpj 08.665.931/0001-40* (ou só os números)."
+    );
+    return;
+  }
+
   const cnpj = formatarCNPJ(cnpjDigitos);
 
   await enviarNotaInterna(chatId, "🔄 Coletando dados da empresa...");
@@ -203,34 +199,25 @@ async function coletarEmpresa(chatId, cnpjDigitos) {
     return;
   }
 
-  await enviarNotaInterna(chatId, formatarDadosEmpresa(dados, cnpj));
-
-  // --------------------------------------
-  // Identificação da versão da Accon — ANTES de qualquer busca no GitBook.
-  // Accon 1.0 -> NÃO há atendimento automático: avisa e encerra a IA.
-  // Accon 2.0 -> segue o atendimento automático normalmente.
-  // --------------------------------------
   const versao = detectarVersaoAccon(dados);
+  const nome = extrairNomeEmpresa(dados) || "(não informado)";
 
-  if (versao === "1.0") {
-    await enviarNotaInterna(chatId, MSG_ACCON_1_0);
-    // encerra o fluxo da IA: nada de responder dúvidas, aguarda atendimento humano
-    desativarModoIA(chatId);
-    return;
-  }
+  // vincula os dados à conversa; não pede o CNPJ novamente
+  definirContexto(chatId, { empresa: { cnpj, dados, versao, nome } });
 
-  // Accon 2.0 -> empresa identificada; o atendimento automático continua
-  definirContexto(chatId, { empresa: { cnpj, dados, versao } });
+  await enviarNotaInterna(
+    chatId,
+    `✅ Dados coletados com sucesso.\n\nEmpresa:\n${nome}\n\nCNPJ:\n${cnpj}\n\nVersão:\n${versao}`
+  );
 }
 
 // ======================================
-// RESPOSTA DA DÚVIDA (agrupada + contexto + imagens)
+// RESPOSTA DA DÚVIDA (agrupada + contexto + imagens) — lojas 2.0
 // ======================================
 
 // --------------------------------------
 // Monta um transcript legível das últimas mensagens do chat, para dar
-// memória de conversa à IA (mensagens do cliente, do atendente e as notas
-// anteriores da própria IA).
+// memória de conversa à IA. Ignora comandos (#...) para não poluir.
 // --------------------------------------
 
 function montarTranscricao(mensagens) {
@@ -238,12 +225,13 @@ function montarTranscricao(mensagens) {
     .map((m) => {
       const txt = (m?.content || m?.Content || "").trim();
       if (!txt) return "";
+      if (txt.startsWith("#")) return ""; // não inclui comandos no contexto
 
       const origem = m?.source || m?.Source;
       const privada = m?.isPrivate || m?.IsPrivate;
 
       let quem = origem === "Member" ? "Atendente" : "Cliente";
-      if (privada) quem = "IA (nota interna)";
+      if (privada) quem = "Nota interna";
 
       return `${quem}: ${txt}`;
     })
@@ -251,11 +239,6 @@ function montarTranscricao(mensagens) {
     .slice(-20)
     .join("\n");
 }
-
-// --------------------------------------
-// Processa a solicitação agrupada após a janela de espera:
-// histórico + dados da empresa + documentação + imagens -> resposta da IA.
-// --------------------------------------
 
 async function processarAgrupado({ chatId, pergunta, imagens }) {
   if (!pergunta && (!imagens || imagens.length === 0)) return;

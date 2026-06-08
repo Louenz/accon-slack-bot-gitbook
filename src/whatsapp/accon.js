@@ -31,40 +31,13 @@ async function buscarDadosEmpresa(cnpjFormatado) {
 }
 
 // --------------------------------------
-// Monta a nota interna com TODOS os campos retornados pela API.
-// Promove "Nome da loja" para o título e o CNPJ para o topo; o restante
-// é exibido na íntegra (nada é ocultado ou resumido).
+// Extrai o nome da loja ("Nome da loja: ...") do texto da API.
+// Retorna "" se não encontrar.
 // --------------------------------------
 
-function formatarDadosEmpresa(textoApi, cnpjFormatado) {
-  const linhas = String(textoApi || "").split(/\r?\n/);
-
-  let nome = "";
-  const corpo = [];
-
-  for (const linha of linhas) {
-    const matchNome = linha.match(/^\s*Nome da loja\s*:\s*(.+)$/i);
-    if (matchNome) {
-      nome = matchNome[1].trim();
-      continue;
-    }
-    // o CNPJ é promovido para o topo; evita duplicar a linha
-    if (/^\s*CNPJ\s*:/i.test(linha)) continue;
-
-    corpo.push(linha);
-  }
-
-  const corpoTexto = corpo.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-
-  const titulo = nome ? `🏢 *${nome}*` : "🏢 *Empresa identificada*";
-
-  let mensagem = `✅ Dados coletados\n\n${titulo}\n\nCNPJ:\n${cnpjFormatado}`;
-
-  if (corpoTexto) {
-    mensagem += `\n\n${corpoTexto}`;
-  }
-
-  return mensagem;
+function extrairNomeEmpresa(textoApi) {
+  const match = String(textoApi || "").match(/Nome da loja\s*:\s*(.+)/i);
+  return match ? match[1].trim() : "";
 }
 
 // --------------------------------------
@@ -89,6 +62,6 @@ function detectarVersaoAccon(textoApi) {
 
 module.exports = {
   buscarDadosEmpresa,
-  formatarDadosEmpresa,
+  extrairNomeEmpresa,
   detectarVersaoAccon,
 };
