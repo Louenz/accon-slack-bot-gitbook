@@ -67,7 +67,28 @@ function formatarDadosEmpresa(textoApi, cnpjFormatado) {
   return mensagem;
 }
 
+// --------------------------------------
+// Determina a versão da Accon a partir do campo "Último pedido 2.0":
+//   - "N/A" (ou ausente)  -> "1.0" (loja nunca pediu na 2.0)
+//   - qualquer outro valor -> "2.0"
+//
+// Default conservador: se o campo não existir, assume "1.0" — assim nunca
+// liberamos atendimento automático sem confirmar que a loja é 2.0.
+// --------------------------------------
+
+function detectarVersaoAccon(textoApi) {
+  const match = String(textoApi || "").match(/pedido\s*2\.0\s*:\s*(.+)/i);
+
+  if (!match) return "1.0";
+
+  const valor = match[1].trim();
+  if (!valor || /^n\/?a$/i.test(valor)) return "1.0";
+
+  return "2.0";
+}
+
 module.exports = {
   buscarDadosEmpresa,
   formatarDadosEmpresa,
+  detectarVersaoAccon,
 };

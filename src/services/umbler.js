@@ -47,6 +47,41 @@ async function enviarNotaInterna(chatId, mensagem) {
   }
 }
 
+// --------------------------------------
+// Lê as mensagens recentes de um chat.
+// GET /v1/chats/{id}/?organizationId=...&includeMessages=N
+// Retorna o array de mensagens (latestMessages) ou [] em caso de erro.
+// --------------------------------------
+
+async function buscarHistoricoChat(chatId, includeMessages = 20) {
+  try {
+    const response = await axios.get(
+      `https://app-utalk.umbler.com/api/v1/chats/${chatId}/`,
+      {
+        headers: {
+          Authorization: `Bearer ${env.UMBLER_TOKEN}`,
+          accept: "application/json",
+        },
+        params: {
+          organizationId: env.ORGANIZATION_ID,
+          includeMessages,
+        },
+      }
+    );
+
+    const data = response.data || {};
+    return data.latestMessages || data.messages || data.Messages || [];
+  } catch (error) {
+    console.log(
+      "❌ Erro ao buscar histórico na Umbler:",
+      error.response?.status,
+      error.message
+    );
+    return [];
+  }
+}
+
 module.exports = {
   enviarNotaInterna,
+  buscarHistoricoChat,
 };

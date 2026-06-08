@@ -74,7 +74,12 @@ documentação do GitBook. Enviar **`0`** (ou `sair`/`menu`) desativa.
 
 Depois do `4`, antes de responder dúvidas técnicas, o bot identifica a empresa
 do cliente. A API da Accon consulta **apenas por CNPJ**, então o CNPJ é
-**obrigatório**:
+**obrigatório**.
+
+Ao ativar o modo IA (`4`), o bot primeiro **procura um CNPJ no histórico recente
+da conversa** (últimas ~20 mensagens) — o cliente pode tê-lo informado antes de
+acionar o bot. Se encontrar, consulta a API na hora, **sem pedir de novo**.
+Depois disso:
 
 - Se a mensagem contém um **CNPJ em qualquer formato** (o sistema normaliza —
   remove pontos, barras, hífens e espaços — e aceita se sobrarem 14 dígitos) →
@@ -91,6 +96,23 @@ do cliente. A API da Accon consulta **apenas por CNPJ**, então o CNPJ é
   > preciso que me informe o CNPJ da empresa.
 
 O contexto é limpo quando o cliente envia `0`/`sair`/`menu`.
+
+### Versão da Accon (1.0 x 2.0)
+
+Logo após coletar os dados — e **antes** de qualquer busca no GitBook — o bot
+identifica a versão da Accon pelo campo **`Último pedido 2.0`** retornado pela API:
+
+- **Accon 1.0** (`Último pedido 2.0: N/A`, ou campo ausente) → **não** há
+  atendimento automático: o bot envia a nota abaixo, **encerra a IA** e aguarda
+  atendimento humano. Nunca consulta GitBook nem gera respostas para lojas 1.0.
+
+  > Identifiquei que você ainda está na versão 1.0 da Accon.
+  >
+  > Aguarde o nosso time especialista entrar às 10:00 horas que irão te chamar
+  > assim que iniciar o expediente para te auxiliar.
+
+- **Accon 2.0** (`Último pedido 2.0` com qualquer valor válido) → segue o
+  atendimento automático normalmente (GitBook + IA).
 
 **Para testar (passo a passo):**
 1. `npm run dev` (sobe Slack na `3000` e o webhook do WhatsApp na `3001`).
