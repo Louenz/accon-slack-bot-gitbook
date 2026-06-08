@@ -11,6 +11,7 @@
 //   origem      -> Payload.Content.LastMessage.Source   ("Contact" | "Member")
 //   nota interna-> Payload.Content.LastMessage.IsPrivate (true = nota)
 //   contato     -> Payload.Content.Contact.Name / .PhoneNumber
+//   arquivo     -> Payload.Content.LastMessage.File (url, contentType, ...)
 
 function extrairDadosWebhook(body) {
   const payload = body?.Payload || body?.payload || {};
@@ -26,6 +27,8 @@ function extrairDadosWebhook(body) {
     isPrivate: lastMessage?.IsPrivate ?? lastMessage?.isPrivate ?? false,
     contactName: contact?.Name || contact?.name || "",
     contactPhone: contact?.PhoneNumber || contact?.phoneNumber || "",
+    // arquivo anexado (imagem, etc.), se houver
+    file: lastMessage?.File || lastMessage?.file || null,
   };
 }
 

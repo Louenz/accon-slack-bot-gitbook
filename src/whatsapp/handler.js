@@ -9,17 +9,17 @@
 //      bot identifica a empresa pelo CNPJ (consulta a API da Accon).
 //   3. VERSÃO DA ACCON           -> Accon 1.0 (campo "Último pedido 2.0" = N/A)
 //      encerra a IA e direciona para a equipe; Accon 2.0 segue o atendimento.
-//   4. Empresa 2.0 identificada  -> responde dúvidas com base na documentação
-//      (GitBook), postando como NOTA INTERNA (teste seguro).
+//   4. Empresa 2.0 identificada  -> responde dúvidas: agrupa as mensagens/
+//      imagens recebidas na janela de espera, junta o histórico recente e os
+//      dados da empresa, e gera a resposta (texto + imagem) como NOTA INTERNA.
 //   5. Cliente digita "0/sair"   -> desativa o modo IA e limpa o contexto.
 //
-// Reaproveita a busca e a geração de resposta compartilhadas
-// (services/gitbook + services/openai), restritas ao comportamento do
-// WhatsApp por configuração (PUBLIC_SPACES + includeSources:false).
+// Reaproveita a BUSCA do GitBook e o CLIENT OpenAI compartilhados, sem
+// alterar o comportamento do Slack. A geração da resposta do WhatsApp é
+// própria (whatsapp/ia.js).
 
 const { WHATSAPP, PUBLIC_SPACES } = require("../config");
 const { searchGitBook, getFullPageContent } = require("../services/gitbook");
-const { generateAnswer } = require("../services/openai");
 const { enviarNotaInterna, buscarHistoricoChat } = require("../services/umbler");
 const { cleanText } = require("../utils/text");
 const { extrairDadosWebhook } = require("./parser");
@@ -28,6 +28,7 @@ const {
   desativarModoIA,
   estaEmModoIA,
   definirContexto,
+  obterContexto,
   empresaIdentificada,
 } = require("./session");
 const { extrairCNPJ, formatarCNPJ } = require("./identify");
@@ -36,6 +37,9 @@ const {
   formatarDadosEmpresa,
   detectarVersaoAccon,
 } = require("./accon");
+const { gerarRespostaIA } = require("./ia");
+const { obterImagemBase64 } = require("./imagem");
+const { agendarProcessamento } = require("./buffer");
 
 // --------------------------------------
 // Mensagens fixas (notas internas)
@@ -60,9 +64,9 @@ const MSG_ACCON_1_0 =
 // ======================================
 
 async function handleWebhook(body) {
-  const { chatId, texto, source, isPrivate } = extrairDadosWebhook(body);
+  const { chatId, texto, source, isPrivate, file } = extrairDadosWebhook(body);
 
-  // sem chat ou sem texto, não há o que fazer
+  // sem chat, não há o que fazer
   if (!chatId) return;
 
   // --------------------------------------
@@ -74,8 +78,8 @@ async function handleWebhook(body) {
   if (isPrivate === true) return;
   if (source === "Member") return;
 
+  // texto pode vir vazio (ex.: mensagem só com imagem) — tratado adiante
   const limpo = (texto || "").trim();
-  if (!limpo) return;
 
   // --------------------------------------
   // Ativa o modo IA quando o cliente digita "4".
@@ -102,7 +106,7 @@ async function handleWebhook(body) {
   // --------------------------------------
   // Desativa o modo IA
   // --------------------------------------
-  if (WHATSAPP.EXIT.includes(limpo.toLowerCase())) {
+  if (limpo && WHATSAPP.EXIT.includes(limpo.toLowerCase())) {
     desativarModoIA(chatId);
     await enviarNotaInterna(chatId, "🤖 Modo IA desativado.");
     return;
@@ -114,15 +118,27 @@ async function handleWebhook(body) {
   // --------------------------------------
   // Antes de responder dúvidas técnicas, identificar a empresa.
   // Enquanto a empresa não estiver identificada, o bot não responde
-  // dúvidas — ele coleta/solicita os dados de identificação.
+  // dúvidas — ele coleta/solicita os dados de identificação (precisa de
+  // texto com o CNPJ; mensagem só com imagem é ignorada aqui).
   // --------------------------------------
   if (!empresaIdentificada(chatId)) {
-    await identificarEmpresa(chatId, limpo);
+    if (limpo) await identificarEmpresa(chatId, limpo);
     return;
   }
 
-  // empresa já identificada -> responder a dúvida pela documentação
-  await responderDuvida(chatId, limpo);
+  // --------------------------------------
+  // Empresa 2.0 identificada -> NÃO responde na hora: agrupa a mensagem
+  // (texto + imagem) na janela de espera. Quando a janela fechar, processa
+  // tudo junto com histórico + dados da empresa (processarAgrupado).
+  // --------------------------------------
+  const imagem = await obterImagemBase64(file);
+  if (!limpo && !imagem) return; // nada útil para processar
+
+  agendarProcessamento(
+    chatId,
+    { texto: limpo, imagem },
+    processarAgrupado
+  );
 }
 
 // ======================================
@@ -208,14 +224,54 @@ async function coletarEmpresa(chatId, cnpjDigitos) {
 }
 
 // ======================================
-// RESPOSTA DA DÚVIDA (documentação)
+// RESPOSTA DA DÚVIDA (agrupada + contexto + imagens)
 // ======================================
 
-async function responderDuvida(chatId, pergunta) {
-  // IMPORTANTE: somente spaces públicos (PUBLIC_SPACES) — o cliente final
-  // nunca pode acessar a "Base de conhecimento Accon" (dados sensíveis).
-  let docs = await searchGitBook(pergunta, PUBLIC_SPACES);
+// --------------------------------------
+// Monta um transcript legível das últimas mensagens do chat, para dar
+// memória de conversa à IA (mensagens do cliente, do atendente e as notas
+// anteriores da própria IA).
+// --------------------------------------
 
+function montarTranscricao(mensagens) {
+  return mensagens
+    .map((m) => {
+      const txt = (m?.content || m?.Content || "").trim();
+      if (!txt) return "";
+
+      const origem = m?.source || m?.Source;
+      const privada = m?.isPrivate || m?.IsPrivate;
+
+      let quem = origem === "Member" ? "Atendente" : "Cliente";
+      if (privada) quem = "IA (nota interna)";
+
+      return `${quem}: ${txt}`;
+    })
+    .filter(Boolean)
+    .slice(-20)
+    .join("\n");
+}
+
+// --------------------------------------
+// Processa a solicitação agrupada após a janela de espera:
+// histórico + dados da empresa + documentação + imagens -> resposta da IA.
+// --------------------------------------
+
+async function processarAgrupado({ chatId, pergunta, imagens }) {
+  if (!pergunta && (!imagens || imagens.length === 0)) return;
+
+  // PRIORIDADE 1: dados da empresa (API Accon), já coletados na sessão
+  const dadosEmpresa = obterContexto(chatId).empresa?.dados || "";
+
+  // PRIORIDADE 2: contexto recente da conversa (memória)
+  let transcricao = "";
+  try {
+    const mensagens = await buscarHistoricoChat(chatId, 20);
+    transcricao = montarTranscricao(mensagens);
+  } catch {}
+
+  // PRIORIDADE 4: documentação (apenas spaces públicos — Central de Ajuda)
+  let docs = await searchGitBook(pergunta || "", PUBLIC_SPACES);
   if (docs[0]) {
     const fullPage = await getFullPageContent(docs[0].spaceId, docs[0].pageId);
     if (fullPage) {
@@ -223,12 +279,16 @@ async function responderDuvida(chatId, pergunta) {
     }
   }
 
-  // includeSources: false -> a IA não envia links/fontes ao cliente final
-  let resposta = await generateAnswer(pergunta, docs, null, {
-    includeSources: false,
+  // PRIORIDADE 5: resposta da IA (texto + imagens)
+  let resposta = await gerarRespostaIA({
+    pergunta,
+    docs,
+    transcricao,
+    dadosEmpresa,
+    imagens,
   });
-  resposta = cleanText(resposta);
 
+  resposta = cleanText(resposta);
   // segurança extra: remove qualquer bloco de fontes que escape do modelo
   resposta = resposta.split("📚 Fontes:")[0].trim();
 

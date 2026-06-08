@@ -43,6 +43,8 @@ const WHATSAPP = {
   TRIGGER: "4",
   // palavras que desativam o modo IA
   EXIT: ["0", "sair", "menu"],
+  // janela de espera antes de processar (agrupa mensagens/imagens seguidas)
+  DEBOUNCE_MS: Number(process.env.WA_DEBOUNCE_MS) || 10000,
 };
 
 // --------------------------------------

@@ -42,7 +42,10 @@ src/
     session.js           Estado "modo IA" + contexto da empresa por chat (em memória)
     dedupe.js            Evita processar o mesmo evento duas vezes
     identify.js          Detecção e normalização de CNPJ (aceita qualquer formato)
-    accon.js             Consulta a API da Accon (dados da empresa por CNPJ)
+    accon.js             Consulta a API da Accon + detecção da versão (1.0/2.0)
+    ia.js                Geração da resposta (gpt-4.1, multimodal, com contexto)
+    imagem.js            Download de imagem anexada (base64 para a IA)
+    buffer.js            Janela de espera (agrupa mensagens/imagens seguidas)
 ```
 
 ## Bot do WhatsApp (Umbler / uTalk)
@@ -114,6 +117,23 @@ identifica a versão da Accon pelo campo **`Último pedido 2.0`** retornado pela
 - **Accon 2.0** (`Último pedido 2.0` com qualquer valor válido) → segue o
   atendimento automático normalmente (GitBook + IA).
 
+### Qualidade das respostas (lojas 2.0)
+
+Para lojas 2.0, a resposta da IA é gerada com mais contexto e qualidade:
+
+- **Modelo:** `gpt-4.1` (multimodal, contexto longo) para a resposta final.
+- **Memória de conversa:** usa o histórico recente (~20 mensagens — cliente,
+  atendente e notas anteriores da IA), os dados da empresa (API Accon) e a
+  documentação. **Nunca** responde olhando só a última mensagem.
+- **Imagens:** analisa prints/telas enviados pelo cliente, interpretando-os no
+  contexto da conversa (ex.: print de erro do iFood ligado ao assunto em curso).
+- **Janela de espera (~10s):** ao receber uma mensagem, o bot **aguarda** alguns
+  segundos antes de processar. Mensagens e imagens enviadas em sequência são
+  **agrupadas** e tratadas como uma única solicitação — evita respostas
+  prematuras. Configurável por `WA_DEBOUNCE_MS` (padrão `10000`).
+- Ordem de prioridade do contexto: dados da empresa → conversa → imagens →
+  documentação → resposta.
+
 **Para testar (passo a passo):**
 1. `npm run dev` (sobe Slack na `3000` e o webhook do WhatsApp na `3001`).
 2. Exponha a porta `3001` com um túnel público, ex.: `ngrok http 3001`.
@@ -145,6 +165,9 @@ UMBLER_PORT=3001
 # API Accon (identificação da empresa por CNPJ) — só WhatsApp
 ACCON_API_USER=
 ACCON_API_PASSWORD=
+
+# Janela de espera (ms) antes de processar/agrupar mensagens — opcional
+WA_DEBOUNCE_MS=10000
 ```
 
 ## Executar
