@@ -46,6 +46,8 @@ src/
     ia.js                Geração da resposta (gpt-4.1, multimodal, com contexto)
     imagem.js            Download de imagem anexada (base64 para a IA)
     buffer.js            Janela de espera (agrupa mensagens/imagens seguidas)
+    treinamento.js       Gera a documentação do atendimento (anonimiza, categoriza)
+    github.js            Grava a tratativa como expandable no repo (Git Sync → GitBook)
 ```
 
 ## Bot do WhatsApp (Umbler / uTalk)
@@ -76,7 +78,33 @@ Os comandos são interpretados **apenas em notas internas** (do atendente). O bo
 | `#desativar` | Desativa a IA e limpa o estado da conversa |
 | `#cnpj [CNPJ]` | Define o CNPJ, consulta a API Accon e salva empresa + versão |
 | `#resetar` | Apaga **todo** o estado da IA na conversa (empresa, CNPJ, versão, memória, agrupamento pendente) e reinicia do zero — mantém a IA ativada |
+| `#desativardoc` | Interrompe **só o treinamento/documentação** da conversa; a IA continua respondendo |
 | `#comandos` | Exibe a lista de comandos |
+
+### Treinamento automático (documentação no GitBook)
+
+Entre o `#ativar` e o `#desativar`, a conversa é capturada. No `#desativar`, a IA
+transforma o atendimento numa **tratativa de documentação** e grava no espaço
+**"Treinamento IA Whatsapp"**:
+
+- **Fonte:** apenas mensagens de **cliente** e **atendente** (público). Ignora
+  notas internas, respostas da IA e comandos.
+- **Privacidade:** anonimiza nome, telefone, e-mail, CNPJ, CPF, IDs e links
+  antes de salvar (regex + instrução à IA).
+- **AnyDesk:** se o atendimento foi resolvido por acesso remoto, **não documenta**.
+- **Categorização:** a IA classifica em uma categoria (Integrações, Impressão,
+  Fiscal, Financeiro, …) → cada categoria é um arquivo `.md`.
+- **Sem duplicar:** se já existir uma tratativa com o mesmo título, **atualiza**
+  o expandable; senão, anexa um novo.
+
+> **Como persiste (importante):** a API do GitBook **não escreve conteúdo**. Igual
+> ao projeto `gitbook-centraldeajuda`, o bot grava markdown (com `<details>`
+> expandables) num **repositório GitHub conectado ao espaço por Git Sync** — o
+> GitBook sincroniza. Requer:
+> 1. Conectar o espaço "Treinamento IA Whatsapp" a um repo GitHub (Git Sync, no painel do GitBook).
+> 2. `GITHUB_TOKEN` (com escrita no repo) e `GITHUB_REPO_TREINAMENTO=org/repo` no `.env`.
+>
+> Sem essas variáveis, a documentação é gerada mas **não é salva** (o bot avisa por nota interna).
 
 O `#cnpj` aceita o CNPJ em **qualquer formato** (normaliza removendo pontos,
 barras, hífens e espaços; aceita se sobrarem 14 dígitos). Responde
@@ -152,6 +180,10 @@ ACCON_API_PASSWORD=
 
 # Janela de espera (ms) antes de processar/agrupar mensagens — opcional
 WA_DEBOUNCE_MS=10000
+
+# Treinamento automático → GitHub (repo Git-Synced ao espaço "Treinamento IA Whatsapp")
+GITHUB_TOKEN=
+GITHUB_REPO_TREINAMENTO=org/repo
 ```
 
 ## Executar

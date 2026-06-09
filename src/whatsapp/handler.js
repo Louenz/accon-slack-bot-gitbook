@@ -33,6 +33,10 @@ const {
   definirContexto,
   obterContexto,
   resetarConversa,
+  iniciarDoc,
+  pararDoc,
+  estaDocAtivo,
+  obterDocInicio,
 } = require("./session");
 const { extrairCNPJ, formatarCNPJ } = require("./identify");
 const {
@@ -43,6 +47,7 @@ const {
 const { gerarRespostaIA } = require("./ia");
 const { obterImagemBase64 } = require("./imagem");
 const { agendarProcessamento, limparBuffer } = require("./buffer");
+const { gerarTreinamento } = require("./treinamento");
 
 // --------------------------------------
 // Mensagens fixas (notas internas)
@@ -56,9 +61,10 @@ const MSG_ACCON_1_0 =
 const MSG_COMANDOS =
   "📋 Comandos disponíveis\n\n" +
   "#ativar\n→ Ativa a IA nesta conversa.\n\n" +
-  "#desativar\n→ Desativa a IA nesta conversa.\n\n" +
+  "#desativar\n→ Desativa a IA nesta conversa e finaliza a documentação do atendimento.\n\n" +
   "#cnpj [CNPJ]\n→ Define manualmente o CNPJ da empresa e coleta os dados da API Accon.\n\n" +
   "#resetar\n→ Remove todos os dados armazenados pela IA nesta conversa e reinicia o atendimento do zero.\n\n" +
+  "#desativardoc\n→ Mantém a IA ativa, mas interrompe o treinamento e a documentação automática desta conversa.\n\n" +
   "#comandos\n→ Exibe esta lista de comandos.";
 
 const MSG_RESET =
@@ -130,7 +136,14 @@ async function handleWebhook(body) {
 // COMANDOS (notas internas)
 // ======================================
 
-const COMANDOS = ["#desativar", "#ativar", "#cnpj", "#resetar", "#comandos"];
+const COMANDOS = [
+  "#desativardoc",
+  "#desativar",
+  "#ativar",
+  "#cnpj",
+  "#resetar",
+  "#comandos",
+];
 
 function ehComando(texto) {
   const t = texto.toLowerCase();
@@ -140,7 +153,22 @@ function ehComando(texto) {
 async function executarComando(chatId, texto) {
   const t = texto.toLowerCase();
 
+  // IMPORTANTE: #desativardoc vem ANTES de #desativar (prefixo em comum).
+  if (t.startsWith("#desativardoc")) {
+    pararDoc(chatId);
+    await enviarNotaInterna(
+      chatId,
+      "📕 Treinamento desativado nesta conversa.\n\nA IA continua funcionando normalmente; apenas a documentação automática foi interrompida."
+    );
+    return;
+  }
+
   if (t.startsWith("#desativar")) {
+    // finaliza a documentação do atendimento (se a captura estava ativa)
+    if (estaDocAtivo(chatId)) {
+      await finalizarTreinamento(chatId);
+      pararDoc(chatId);
+    }
     desativarModoIA(chatId);
     await enviarNotaInterna(
       chatId,
@@ -151,6 +179,7 @@ async function executarComando(chatId, texto) {
 
   if (t.startsWith("#ativar")) {
     ativarModoIA(chatId);
+    iniciarDoc(chatId); // inicia a captura do treinamento
     await enviarNotaInterna(
       chatId,
       "🤖 IA ativada com sucesso.\n\nA partir de agora esta conversa será analisada automaticamente pela IA."
@@ -225,6 +254,34 @@ async function comandoCnpj(chatId, texto) {
     chatId,
     `✅ Dados coletados com sucesso.\n\nEmpresa:\n${nome}\n\nCNPJ:\n${cnpj}\n\nVersão:\n${versao}`
   );
+}
+
+// --------------------------------------
+// Gera e grava a documentação de treinamento da janela atual e avisa o
+// resultado por nota interna.
+// --------------------------------------
+
+async function finalizarTreinamento(chatId) {
+  let res;
+  try {
+    res = await gerarTreinamento(chatId, obterDocInicio(chatId));
+  } catch (error) {
+    console.log("❌ Erro no treinamento:", error.message);
+    res = { status: "erro" };
+  }
+
+  const notas = {
+    ok: `📚 Treinamento salvo: *${res.categoria}* → ${res.titulo}`,
+    vazio:
+      "ℹ️ Nada para documentar (sem conversa de cliente/atendente na janela).",
+    anydesk:
+      "ℹ️ Atendimento resolvido por acesso remoto (AnyDesk) — não documentado (não gera conhecimento reaproveitável).",
+    erro: "❌ Não consegui gerar a documentação de treinamento agora.",
+    falha_persistencia:
+      "⚠️ Documentação gerada, mas NÃO salva no GitBook. Configure GITHUB_TOKEN + GITHUB_REPO_TREINAMENTO (repo Git-Synced ao espaço).",
+  };
+
+  await enviarNotaInterna(chatId, notas[res.status] || notas.erro);
 }
 
 // ======================================

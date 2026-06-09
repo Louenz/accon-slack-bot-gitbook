@@ -18,6 +18,9 @@ const chatsEmModoIA = new Set();
 // chatId -> { empresa?: { cnpj, dados } }
 const contextoPorChat = new Map();
 
+// chatId -> { desde: timestamp }  (presença = captura de treinamento ativa)
+const docPorChat = new Map();
+
 // --------------------------------------
 // Modo IA
 // --------------------------------------
@@ -63,6 +66,27 @@ function resetarConversa(chatId) {
   contextoPorChat.set(chatId, { resetEm: Date.now() });
 }
 
+// --------------------------------------
+// Captura de treinamento (#ativar inicia, #desativar/#desativardoc encerra).
+// Marca o instante de início para delimitar a janela da conversa.
+// --------------------------------------
+
+function iniciarDoc(chatId) {
+  docPorChat.set(chatId, { desde: Date.now() });
+}
+
+function pararDoc(chatId) {
+  docPorChat.delete(chatId);
+}
+
+function estaDocAtivo(chatId) {
+  return docPorChat.has(chatId);
+}
+
+function obterDocInicio(chatId) {
+  return docPorChat.get(chatId)?.desde || 0;
+}
+
 module.exports = {
   ativarModoIA,
   desativarModoIA,
@@ -71,4 +95,8 @@ module.exports = {
   definirContexto,
   empresaIdentificada,
   resetarConversa,
+  iniciarDoc,
+  pararDoc,
+  estaDocAtivo,
+  obterDocInicio,
 };

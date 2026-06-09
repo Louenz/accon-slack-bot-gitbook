@@ -31,6 +31,10 @@ const env = {
   // API Accon (merchant-info) — usado SOMENTE pelo bot do WhatsApp
   ACCON_API_USER: process.env.ACCON_API_USER,
   ACCON_API_PASSWORD: process.env.ACCON_API_PASSWORD,
+
+  // GitHub (escrita do treinamento no repo Git-Synced ao GitBook) — SÓ WhatsApp
+  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+  GITHUB_REPO_TREINAMENTO: process.env.GITHUB_REPO_TREINAMENTO,
 };
 
 // --------------------------------------
@@ -47,6 +51,44 @@ const WHATSAPP = {
   EXIT: ["0", "sair", "menu"],
   // janela de espera antes de processar (agrupa mensagens/imagens seguidas)
   DEBOUNCE_MS: Number(process.env.WA_DEBOUNCE_MS) || 10000,
+};
+
+// --------------------------------------
+// Treinamento automático (documentação no GitBook "Treinamento IA Whatsapp")
+// --------------------------------------
+
+const TREINAMENTO = {
+  // categorias para a IA classificar a tratativa
+  CATEGORIAS: [
+    "Integrações",
+    "Impressão",
+    "Fiscal",
+    "Financeiro",
+    "Cardápio",
+    "Pedidos",
+    "Delivery",
+    "iFood",
+    "Marketplace",
+    "Usuários",
+    "Configuração",
+    "Cadastro",
+    "Pagamentos",
+    "Produção",
+    "Outros",
+  ],
+  // se a conversa indicar acesso remoto, NÃO documenta (não gera conhecimento)
+  ANYDESK_TERMS: [
+    "anydesk",
+    "any desk",
+    "acesso remoto",
+    "conexão remota",
+    "conexao remota",
+    "compartilhamento de tela",
+    "compartilhar a tela",
+    "teamviewer",
+    "rustdesk",
+    "controle remoto",
+  ],
 };
 
 // --------------------------------------
@@ -134,4 +176,5 @@ module.exports = {
   synonyms,
   STOP_WORDS,
   WHATSAPP,
+  TREINAMENTO,
 };
