@@ -74,18 +74,30 @@ Os comandos são interpretados **apenas em notas internas** (do atendente). O bo
 
 | Comando | Ação |
 |---|---|
-| `#ativar` | Ativa a IA nesta conversa |
-| `#desativar` | Desativa a IA e limpa o estado da conversa |
+| `#ativar` | Ativa as **respostas automáticas da IA** (nota interna) nesta conversa |
+| `#desativar` | Desativa as **respostas automáticas da IA** nesta conversa |
 | `#cnpj [CNPJ]` | Define o CNPJ, consulta a API Accon e salva empresa + versão |
-| `#resetar` | Apaga **todo** o estado da IA na conversa (empresa, CNPJ, versão, memória, agrupamento pendente) e reinicia do zero — mantém a IA ativada |
-| `#desativardoc` | Interrompe **só o treinamento/documentação** da conversa; a IA continua respondendo |
+| `#resetar` | Apaga **todo** o estado da IA na conversa (empresa, CNPJ, versão, memória, agrupamento pendente) e reinicia do zero |
+| `#desativardoc` | Interrompe a **documentação automática** da conversa (a IA continua respondendo) |
 | `#comandos` | Exibe a lista de comandos |
+
+> **Documentação ≠ comandos:** `#ativar`/`#desativar` controlam **apenas as
+> respostas da IA**. A documentação é controlada **automaticamente pelo ciclo do
+> atendimento** (ver abaixo).
 
 ### Treinamento automático (documentação no GitBook)
 
-Entre o `#ativar` e o `#desativar`, a conversa é capturada. No `#desativar`, a IA
-transforma o atendimento numa **tratativa de documentação** e grava no espaço
-**"Treinamento IA Whatsapp"**:
+A documentação é **automática**, controlada pelo ciclo real do atendimento na
+Umbler (o atendente não precisa lembrar de ativar):
+
+- **Início:** quando aparece a nota `Chat transferido com sucesso para o setor
+  Suporte!` → começa a captura.
+- **Fim:** quando aparece uma nota de encerramento (`Chat finalizado por bot`, ou
+  as notas de "Avaliação"/"Encerramento" do chatbot) → gera a documentação.
+- `#desativardoc` interrompe e **bloqueia** a documentação daquela conversa.
+
+A janela capturada (do início ao fim) vira uma **tratativa de documentação** no
+espaço **"Treinamento IA Whatsapp"**:
 
 - **Fonte:** apenas mensagens de **cliente** e **atendente** (público). Ignora
   notas internas, respostas da IA e comandos.

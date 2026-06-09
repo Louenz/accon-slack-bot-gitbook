@@ -21,6 +21,9 @@ const contextoPorChat = new Map();
 // chatId -> { desde: timestamp }  (presença = captura de treinamento ativa)
 const docPorChat = new Map();
 
+// chats onde a documentação foi bloqueada por #desativardoc
+const docBloqueado = new Set();
+
 // --------------------------------------
 // Modo IA
 // --------------------------------------
@@ -87,6 +90,16 @@ function obterDocInicio(chatId) {
   return docPorChat.get(chatId)?.desde || 0;
 }
 
+// #desativardoc: interrompe a captura e bloqueia a documentação desta conversa.
+function bloquearDoc(chatId) {
+  docPorChat.delete(chatId);
+  docBloqueado.add(chatId);
+}
+
+function docEstaBloqueado(chatId) {
+  return docBloqueado.has(chatId);
+}
+
 module.exports = {
   ativarModoIA,
   desativarModoIA,
@@ -99,4 +112,6 @@ module.exports = {
   pararDoc,
   estaDocAtivo,
   obterDocInicio,
+  bloquearDoc,
+  docEstaBloqueado,
 };

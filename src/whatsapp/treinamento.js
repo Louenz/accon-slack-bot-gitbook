@@ -59,12 +59,17 @@ function montarConversaTreinamento(mensagens, desde) {
     (a, b) => new Date(dataMsg(a)) - new Date(dataMsg(b))
   );
 
+  const ehGatilho = (txt) =>
+    txt.includes(TREINAMENTO.DOC_INICIO) ||
+    TREINAMENTO.DOC_FIM.some((f) => txt.includes(f));
+
   let conversa = "";
 
   for (const m of ordenadas) {
     const txt = (m?.content || m?.Content || "").trim();
     if (!txt) continue;
     if (txt.startsWith("#")) continue; // comandos administrativos
+    if (ehGatilho(txt)) continue; // notas-gatilho de início/fim
 
     // ignora notas internas (inclui as respostas da IA, que são privadas)
     if (m?.isPrivate || m?.IsPrivate) continue;

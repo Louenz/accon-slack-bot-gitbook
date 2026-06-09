@@ -21,7 +21,7 @@
 // alterar o comportamento do Slack. A geração da resposta é própria
 // (whatsapp/ia.js). Tudo é postado como NOTA INTERNA (cliente não vê).
 
-const { PUBLIC_SPACES } = require("../config");
+const { PUBLIC_SPACES, TREINAMENTO } = require("../config");
 const { searchGitBook, getFullPageContent } = require("../services/gitbook");
 const { enviarNotaInterna, buscarHistoricoChat } = require("../services/umbler");
 const { cleanText } = require("../utils/text");
@@ -37,6 +37,8 @@ const {
   pararDoc,
   estaDocAtivo,
   obterDocInicio,
+  bloquearDoc,
+  docEstaBloqueado,
 } = require("./session");
 const { extrairCNPJ, formatarCNPJ } = require("./identify");
 const {
@@ -60,17 +62,30 @@ const MSG_ACCON_1_0 =
 
 const MSG_COMANDOS =
   "📋 Comandos disponíveis\n\n" +
-  "#ativar\n→ Ativa a IA nesta conversa.\n\n" +
-  "#desativar\n→ Desativa a IA nesta conversa e finaliza a documentação do atendimento.\n\n" +
+  "#ativar\n→ Ativa as respostas automáticas da IA (nota interna) nesta conversa.\n\n" +
+  "#desativar\n→ Desativa as respostas automáticas da IA nesta conversa.\n\n" +
   "#cnpj [CNPJ]\n→ Define manualmente o CNPJ da empresa e coleta os dados da API Accon.\n\n" +
   "#resetar\n→ Remove todos os dados armazenados pela IA nesta conversa e reinicia o atendimento do zero.\n\n" +
-  "#desativardoc\n→ Mantém a IA ativa, mas interrompe o treinamento e a documentação automática desta conversa.\n\n" +
-  "#comandos\n→ Exibe esta lista de comandos.";
+  "#desativardoc\n→ Interrompe a documentação automática desta conversa (a IA continua respondendo).\n\n" +
+  "#comandos\n→ Exibe esta lista de comandos.\n\n" +
+  "ℹ️ A documentação inicia/encerra automaticamente pelo ciclo do atendimento (setor Suporte), sem comando.";
 
 const MSG_RESET =
   "🔄 Conversa resetada com sucesso.\n\n" +
   "Todos os dados da IA foram removidos.\n\n" +
   "Na próxima interação será necessário informar novamente o CNPJ da empresa para iniciar o atendimento.";
+
+// --------------------------------------
+// Detecção das notas-gatilho (sistema Umbler)
+// --------------------------------------
+
+function ehGatilhoInicioDoc(texto) {
+  return texto.includes(TREINAMENTO.DOC_INICIO);
+}
+
+function ehGatilhoFimDoc(texto) {
+  return TREINAMENTO.DOC_FIM.some((frase) => texto.includes(frase));
+}
 
 // ======================================
 // ENTRADA
@@ -82,6 +97,22 @@ async function handleWebhook(body) {
   if (!chatId) return;
 
   const limpo = (texto || "").trim();
+
+  // --------------------------------------
+  // GATILHOS AUTOMÁTICOS DE DOCUMENTAÇÃO (eventos do sistema Umbler).
+  // Independentes de #ativar/#desativar e de quem enviou:
+  //  - INÍCIO: o chat entra no setor Suporte -> começa a captura.
+  //  - FIM: o atendimento é encerrado -> gera a documentação.
+  // --------------------------------------
+  if (limpo && ehGatilhoInicioDoc(limpo)) {
+    if (!docEstaBloqueado(chatId)) iniciarDoc(chatId);
+    return;
+  }
+  if (limpo && ehGatilhoFimDoc(limpo)) {
+    if (estaDocAtivo(chatId)) await finalizarTreinamento(chatId);
+    pararDoc(chatId);
+    return;
+  }
 
   // --------------------------------------
   // NOTAS INTERNAS -> comandos do atendente.
@@ -154,35 +185,32 @@ async function executarComando(chatId, texto) {
   const t = texto.toLowerCase();
 
   // IMPORTANTE: #desativardoc vem ANTES de #desativar (prefixo em comum).
+  // A documentação é controlada pelos eventos da Umbler; este comando apenas
+  // interrompe e BLOQUEIA a documentação desta conversa (não gera no fim).
   if (t.startsWith("#desativardoc")) {
-    pararDoc(chatId);
+    bloquearDoc(chatId);
     await enviarNotaInterna(
       chatId,
-      "📕 Treinamento desativado nesta conversa.\n\nA IA continua funcionando normalmente; apenas a documentação automática foi interrompida."
+      "📕 Documentação automática interrompida nesta conversa.\n\nA IA continua respondendo normalmente; apenas a documentação foi desativada."
     );
     return;
   }
 
+  // #desativar/#ativar controlam SOMENTE as respostas da IA (não a documentação).
   if (t.startsWith("#desativar")) {
-    // finaliza a documentação do atendimento (se a captura estava ativa)
-    if (estaDocAtivo(chatId)) {
-      await finalizarTreinamento(chatId);
-      pararDoc(chatId);
-    }
     desativarModoIA(chatId);
     await enviarNotaInterna(
       chatId,
-      "⛔ IA desativada com sucesso.\n\nEsta conversa não será mais processada automaticamente."
+      "⛔ Respostas automáticas da IA desativadas nesta conversa."
     );
     return;
   }
 
   if (t.startsWith("#ativar")) {
     ativarModoIA(chatId);
-    iniciarDoc(chatId); // inicia a captura do treinamento
     await enviarNotaInterna(
       chatId,
-      "🤖 IA ativada com sucesso.\n\nA partir de agora esta conversa será analisada automaticamente pela IA."
+      "🤖 Respostas automáticas da IA ativadas nesta conversa (como nota interna)."
     );
     return;
   }

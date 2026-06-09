@@ -75,6 +75,16 @@ const TREINAMENTO = {
     "Produção",
     "Outros",
   ],
+  // GATILHOS automáticos (notas do sistema Umbler) que controlam a captura.
+  // Início: atendimento entrou no setor Suporte.
+  DOC_INICIO: "Chat transferido com sucesso para o setor Suporte!",
+  // Fim: qualquer uma destas encerra o atendimento e gera a documentação.
+  DOC_FIM: [
+    'Chatbot "Avaliação de Atendimento->Avaliação de Satisfação" iniciado manualmente.',
+    'Chatbot "Encerramento (Sem avaliação e sem mensagem)->Início" iniciado manualmente.',
+    "Chat finalizado por bot",
+  ],
+
   // se a conversa indicar acesso remoto, NÃO documenta (não gera conhecimento)
   ANYDESK_TERMS: [
     "anydesk",
