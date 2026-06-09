@@ -49,7 +49,7 @@ const {
 const { gerarRespostaIA } = require("./ia");
 const { obterImagemBase64 } = require("./imagem");
 const { agendarProcessamento, limparBuffer } = require("./buffer");
-const { gerarTreinamento } = require("./treinamento");
+const { gerarTreinamento, treinarManual } = require("./treinamento");
 
 // --------------------------------------
 // Mensagens fixas (notas internas)
@@ -62,13 +62,13 @@ const MSG_ACCON_1_0 =
 
 const MSG_COMANDOS =
   "📋 Comandos disponíveis\n\n" +
-  "#ativar\n→ Ativa as respostas automáticas da IA (nota interna) nesta conversa.\n\n" +
-  "#desativar\n→ Desativa as respostas automáticas da IA nesta conversa.\n\n" +
+  "#ativar\n→ Ativa a IA nesta conversa.\n\n" +
+  "#desativar\n→ Desativa a IA nesta conversa.\n\n" +
   "#cnpj [CNPJ]\n→ Define manualmente o CNPJ da empresa e coleta os dados da API Accon.\n\n" +
   "#resetar\n→ Remove todos os dados armazenados pela IA nesta conversa e reinicia o atendimento do zero.\n\n" +
-  "#desativardoc\n→ Interrompe a documentação automática desta conversa (a IA continua respondendo).\n\n" +
-  "#comandos\n→ Exibe esta lista de comandos.\n\n" +
-  "ℹ️ A documentação inicia/encerra automaticamente pelo ciclo do atendimento (setor Suporte), sem comando.";
+  "#desativardoc\n→ Mantém a IA ativa, mas interrompe a documentação automática desta conversa.\n\n" +
+  "#treinamento [texto]\n→ Ensina uma nova informação diretamente para a IA. O conteúdo será categorizado e armazenado na base de treinamento para uso futuro.\n\n" +
+  "#comandos\n→ Exibe esta lista de comandos.";
 
 const MSG_RESET =
   "🔄 Conversa resetada com sucesso.\n\n" +
@@ -173,6 +173,7 @@ const COMANDOS = [
   "#ativar",
   "#cnpj",
   "#resetar",
+  "#treinamento",
   "#comandos",
 ];
 
@@ -229,6 +230,11 @@ async function executarComando(chatId, texto) {
     return;
   }
 
+  if (t.startsWith("#treinamento")) {
+    await comandoTreinamento(chatId, texto);
+    return;
+  }
+
   if (t.startsWith("#comandos")) {
     await enviarNotaInterna(chatId, MSG_COMANDOS);
     return;
@@ -282,6 +288,38 @@ async function comandoCnpj(chatId, texto) {
     chatId,
     `✅ Dados coletados com sucesso.\n\nEmpresa:\n${nome}\n\nCNPJ:\n${cnpj}\n\nVersão:\n${versao}`
   );
+}
+
+// --------------------------------------
+// #treinamento [texto] -> conhecimento explícito do atendente para a IA.
+// --------------------------------------
+
+async function comandoTreinamento(chatId, texto) {
+  const conteudo = texto.replace(/#treinamento/i, "").trim();
+
+  if (!conteudo) {
+    await enviarNotaInterna(
+      chatId,
+      "⚠️ Use: *#treinamento <o que você quer ensinar à IA>*"
+    );
+    return;
+  }
+
+  const res = await treinarManual(conteudo);
+
+  const notas = {
+    ok:
+      `🧠 Treinamento registrado com sucesso.\n\n` +
+      `Categoria identificada: ${res.categoria}\n\n` +
+      `O conhecimento foi incorporado à base de treinamento da IA.`,
+    vazio:
+      "⚠️ Não consegui extrair um conhecimento desse texto. Tente detalhar melhor o problema e a solução.",
+    erro: "❌ Não consegui registrar o treinamento agora. Tente novamente em instantes.",
+    falha_persistencia:
+      "⚠️ Treinamento gerado, mas NÃO salvo no GitBook. Configure GITHUB_TOKEN + GITHUB_REPO_TREINAMENTO (repo Git-Synced ao espaço).",
+  };
+
+  await enviarNotaInterna(chatId, notas[res.status] || notas.erro);
 }
 
 // --------------------------------------

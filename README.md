@@ -79,6 +79,7 @@ Os comandos são interpretados **apenas em notas internas** (do atendente). O bo
 | `#cnpj [CNPJ]` | Define o CNPJ, consulta a API Accon e salva empresa + versão |
 | `#resetar` | Apaga **todo** o estado da IA na conversa (empresa, CNPJ, versão, memória, agrupamento pendente) e reinicia do zero |
 | `#desativardoc` | Interrompe a **documentação automática** da conversa (a IA continua respondendo) |
+| `#treinamento [texto]` | **Ensina** a IA diretamente: o texto é anonimizado, categorizado e salvo como tratativa na base de treinamento |
 | `#comandos` | Exibe a lista de comandos |
 
 > **Documentação ≠ comandos:** `#ativar`/`#desativar` controlam **apenas as
@@ -114,6 +115,11 @@ espaço **"Treinamento IA Whatsapp"**:
   o título e enriquece** o conteúdo (não duplica); senão, cria uma nova.
 - **Conteúdo de cada expandable:** Problema, Sintomas, Causa, Como diagnosticar,
   Como resolver, Observações.
+
+**Treinamento manual (`#treinamento [texto]`):** além do aprendizado automático,
+o atendente pode **ensinar** a IA por nota interna. O texto é anonimizado,
+categorizado e salvo como tratativa na mesma base (com dedup/enriquecimento) —
+tratado como conhecimento **validado por especialista** (prioridade alta).
 
 > **Como persiste (importante):** a API do GitBook **não escreve conteúdo**. Igual
 > ao projeto `gitbook-centraldeajuda`, o bot grava markdown (com `<details>`

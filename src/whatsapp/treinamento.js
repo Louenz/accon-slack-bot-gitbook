@@ -126,16 +126,20 @@ Responda SOMENTE o nome da categoria, sem aspas nem pontuação.`,
 //    categoria para REAPROVEITAR/ENRIQUECER a equivalente (sem duplicar).
 // --------------------------------------
 
-function promptTratativa(categoria, existentes) {
+function promptTratativa(categoria, existentes, manual = false) {
   const base =
     existentes && existentes.trim()
       ? `TRATATIVAS JÁ EXISTENTES na categoria "${categoria}" (markdown com expandables <details>):\n\n${existentes}\n`
       : `Ainda não há tratativas nesta categoria.\n`;
 
-  return `Você transforma um atendimento de suporte REAL da Accon em UMA tratativa de documentação para treinamento interno, na categoria "${categoria}".
+  const fonte = manual
+    ? "uma INSTRUÇÃO de um especialista humano da equipe Accon (conhecimento validado, de ALTA prioridade)"
+    : "um atendimento de suporte REAL da Accon";
+
+  return `Você transforma ${fonte} em UMA tratativa de documentação para treinamento interno, na categoria "${categoria}".
 
 REGRAS:
-- Use SOMENTE o que está explícito na conversa. NÃO invente passos, telas, menus ou funcionalidades.
+- Use SOMENTE o que está explícito no conteúdo recebido. NÃO invente passos, telas, menus ou funcionalidades.
 - Anonimize qualquer dado pessoal/identificador que tenha escapado (nomes, telefone, e-mail, CNPJ, CPF, IDs, valores, links). Nunca os inclua.
 - UMA tratativa = UM problema específico. Não misture vários problemas.
 
@@ -155,12 +159,12 @@ Responda APENAS um JSON válido:
 { "titulo": "<título da tratativa>", "markdown": "<conteúdo em markdown>" }`;
 }
 
-async function gerarTratativa(conversa, categoria, existentes) {
+async function gerarTratativa(entrada, categoria, existentes, manual = false) {
   const r = await openai.chat.completions.create({
     model: "gpt-4.1",
     messages: [
-      { role: "system", content: promptTratativa(categoria, existentes) },
-      { role: "user", content: conversa },
+      { role: "system", content: promptTratativa(categoria, existentes, manual) },
+      { role: "user", content: entrada },
     ],
     temperature: 0.2,
     max_tokens: 1800,
@@ -216,8 +220,42 @@ async function gerarTreinamento(chatId, desde) {
   return { status: ok ? "ok" : "falha_persistencia", categoria, titulo };
 }
 
+// --------------------------------------
+// Treinamento MANUAL (#treinamento): conhecimento explícito do atendente.
+// Mesmo destino/dedup das tratativas, mas a fonte é texto validado por humano.
+// --------------------------------------
+
+async function treinarManual(textoExpert) {
+  const texto = anonimizar(String(textoExpert || "").trim());
+  if (!texto) return { status: "vazio" };
+
+  const categoria = await classificarCategoria(texto);
+
+  let existentes = "";
+  try {
+    existentes = await lerCategoria(categoria);
+  } catch {}
+
+  let dados;
+  try {
+    dados = await gerarTratativa(texto, categoria, existentes, true);
+  } catch (error) {
+    console.log("❌ Erro no treinamento manual (IA):", error.message);
+    return { status: "erro" };
+  }
+
+  const titulo = String(dados.titulo || "").trim();
+  const markdown = anonimizar(String(dados.markdown || "").trim());
+  if (!titulo || !markdown) return { status: "vazio" };
+
+  const ok = await enviarTratativa(categoria, titulo, markdown);
+
+  return { status: ok ? "ok" : "falha_persistencia", categoria, titulo };
+}
+
 module.exports = {
   gerarTreinamento,
+  treinarManual,
   anonimizar,
   usouAcessoRemoto,
   montarConversaTreinamento,
