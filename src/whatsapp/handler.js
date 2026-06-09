@@ -80,7 +80,7 @@ const MSG_RESET =
 // --------------------------------------
 
 function ehGatilhoInicioDoc(texto) {
-  return texto.includes(TREINAMENTO.DOC_INICIO);
+  return TREINAMENTO.DOC_INICIO.some((frase) => texto.includes(frase));
 }
 
 function ehGatilhoFimDoc(texto) {

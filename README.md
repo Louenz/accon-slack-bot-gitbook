@@ -91,8 +91,9 @@ Os comandos são interpretados **apenas em notas internas** (do atendente). O bo
 A documentação é **automática**, controlada pelo ciclo real do atendimento na
 Umbler (o atendente não precisa lembrar de ativar):
 
-- **Início:** quando aparece a nota `Chat transferido com sucesso para o setor
-  Suporte!` → começa a captura.
+- **Início:** quando aparece uma nota de transferência para o setor Suporte —
+  `Chat transferido com sucesso para o setor Suporte!` **ou** `Transferido para o
+  setor Suporte` → começa a captura.
 - **Fim:** quando aparece uma nota de encerramento (`Chat finalizado por bot`, ou
   as notas de "Avaliação"/"Encerramento" do chatbot) → gera a documentação.
 - `#desativardoc` interrompe e **bloqueia** a documentação daquela conversa.

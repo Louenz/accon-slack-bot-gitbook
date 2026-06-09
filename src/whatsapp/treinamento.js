@@ -60,7 +60,7 @@ function montarConversaTreinamento(mensagens, desde) {
   );
 
   const ehGatilho = (txt) =>
-    txt.includes(TREINAMENTO.DOC_INICIO) ||
+    TREINAMENTO.DOC_INICIO.some((f) => txt.includes(f)) ||
     TREINAMENTO.DOC_FIM.some((f) => txt.includes(f));
 
   let conversa = "";

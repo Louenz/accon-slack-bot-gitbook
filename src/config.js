@@ -76,8 +76,11 @@ const TREINAMENTO = {
     "Outros",
   ],
   // GATILHOS automáticos (notas do sistema Umbler) que controlam a captura.
-  // Início: atendimento entrou no setor Suporte.
-  DOC_INICIO: "Chat transferido com sucesso para o setor Suporte!",
+  // Início: atendimento entrou no setor Suporte (qualquer uma destas notas).
+  DOC_INICIO: [
+    "Chat transferido com sucesso para o setor Suporte!",
+    "Transferido para o setor Suporte",
+  ],
   // Fim: qualquer uma destas encerra o atendimento e gera a documentação.
   DOC_FIM: [
     'Chatbot "Avaliação de Atendimento->Avaliação de Satisfação" iniciado manualmente.',
