@@ -112,6 +112,15 @@ transforma o atendimento numa **tratativa de documentação** e grava no espaço
 >
 > Sem essas variáveis, a documentação é gerada mas **não é salva** (o bot avisa por nota interna).
 
+> 🔒 **Isolamento dos espaços (regra crítica):** a escrita só acontece num único
+> ponto (`whatsapp/github.js`) e **somente** no espaço **"Treinamento IA Whatsapp"**.
+> Antes de gravar, um guard confirma o alvo: bloqueia repositórios de espaços
+> somente-leitura (denylist) e confirma **positivamente**, via `GET
+> /spaces/{id}/git/info` do GitBook, que o repo configurado é o do Git Sync do
+> espaço de treinamento. Os espaços **Central de Ajuda** e **Base de Conhecimento**
+> são **somente leitura** — nunca recebem escrita. Se o alvo não for confirmado,
+> a operação é **abortada**.
+
 O `#cnpj` aceita o CNPJ em **qualquer formato** (normaliza removendo pontos,
 barras, hífens e espaços; aceita se sobrarem 14 dígitos). Responde
 `🔄 Coletando dados da empresa...` e, após o retorno, um resumo:

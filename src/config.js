@@ -167,6 +167,24 @@ const STOP_WORDS = [
   "pedido manual",
 ];
 
+// --------------------------------------
+// Isolamento dos espaços do GitBook (REGRA CRÍTICA).
+// Escrita é PERMITIDA apenas no espaço "Treinamento IA Whatsapp".
+// Os demais (Central de Ajuda, Base de Conhecimento) são SOMENTE LEITURA.
+// --------------------------------------
+
+const GITBOOK = {
+  // único espaço onde a gravação é permitida
+  TREINAMENTO_SPACE_ID: "PWe8JBlvnABvGnRhvJGa",
+  TREINAMENTO_SPACE_NAME: "Treinamento IA Whatsapp",
+
+  // espaços SOMENTE LEITURA (jamais gravar): Central de Ajuda + Base de Conhecimento
+  READONLY_SPACE_IDS: ["f70xibkjOuE6vUYi8iTR", "lRDxW1FXy0nHj5b8YF1w"],
+
+  // repositórios conhecidos de espaços somente-leitura (denylist de escrita)
+  READONLY_REPOS: ["accondelivery/gitbook-centraldeajuda"],
+};
+
 module.exports = {
   env,
   SPACES,
@@ -176,4 +194,5 @@ module.exports = {
   STOP_WORDS,
   WHATSAPP,
   TREINAMENTO,
+  GITBOOK,
 };

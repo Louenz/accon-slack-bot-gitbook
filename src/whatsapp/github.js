@@ -13,7 +13,72 @@
 // Requer GITHUB_TOKEN (escrita) e GITHUB_REPO_TREINAMENTO ("org/repo").
 
 const axios = require("axios");
-const { env } = require("../config");
+const { env, GITBOOK } = require("../config");
+
+// ======================================
+// GUARD DE ISOLAMENTO (REGRA CRÍTICA)
+// ======================================
+//
+// Garante que a escrita só ocorra no repo conectado ao espaço
+// "Treinamento IA Whatsapp". Bloqueia qualquer outro alvo (Central de
+// Ajuda / Base de Conhecimento são somente-leitura).
+
+let _treinamentoConfirmado = null; // cache (true) após confirmar
+
+async function escritaPermitida() {
+  if (_treinamentoConfirmado === true) return true;
+
+  const repo = String(env.GITHUB_REPO_TREINAMENTO || "").toLowerCase().trim();
+  if (!repo) return false; // sem repo configurado (tratado antes)
+
+  // 1) denylist explícita: repos de espaços somente-leitura
+  if (GITBOOK.READONLY_REPOS.some((r) => r.toLowerCase() === repo)) {
+    console.log(
+      `🚫 ESCRITA BLOQUEADA: "${repo}" é repositório de espaço SOMENTE LEITURA.`
+    );
+    return false;
+  }
+
+  // 2) confirmação POSITIVA: o repo é o Git Sync do espaço de treinamento?
+  if (!env.GITBOOK_TOKEN) {
+    console.log(
+      "🚫 ESCRITA BLOQUEADA: sem GITBOOK_TOKEN para confirmar o espaço de treinamento."
+    );
+    return false;
+  }
+
+  try {
+    const r = await axios.get(
+      `https://api.gitbook.com/v1/spaces/${GITBOOK.TREINAMENTO_SPACE_ID}/git/info`,
+      { headers: { Authorization: `Bearer ${env.GITBOOK_TOKEN}` } }
+    );
+
+    const repoName = String(r.data?.repoName || "").toLowerCase();
+    const url = String(r.data?.url || "").toLowerCase();
+    const repoCurto = repo.split("/").pop();
+
+    const confere =
+      (repoName && (repoName === repo || repoName === repoCurto)) ||
+      (url && url.includes(repo));
+
+    if (confere) {
+      _treinamentoConfirmado = true;
+      return true;
+    }
+
+    console.log(
+      `🚫 ESCRITA BLOQUEADA: o repo configurado ("${repo}") NÃO corresponde ao Git Sync do espaço "${GITBOOK.TREINAMENTO_SPACE_NAME}" (git/info repoName="${r.data?.repoName || ""}").`
+    );
+    return false;
+  } catch (error) {
+    console.log(
+      "🚫 ESCRITA BLOQUEADA: não foi possível confirmar o espaço de treinamento (git/info):",
+      error.response?.status,
+      error.message
+    );
+    return false;
+  }
+}
 
 // --------------------------------------
 // slug de categoria -> nome de arquivo
@@ -87,6 +152,11 @@ async function enviarTratativa(categoria, titulo, corpo) {
     console.log(
       "⚠️ Treinamento não persistido: defina GITHUB_TOKEN e GITHUB_REPO_TREINAMENTO no .env (repo Git-Synced ao espaço)."
     );
+    return false;
+  }
+
+  // REGRA CRÍTICA: só grava se o alvo for o espaço "Treinamento IA Whatsapp".
+  if (!(await escritaPermitida())) {
     return false;
   }
 
