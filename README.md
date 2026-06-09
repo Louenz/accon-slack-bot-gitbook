@@ -92,10 +92,16 @@ transforma o atendimento numa **tratativa de documentação** e grava no espaço
 - **Privacidade:** anonimiza nome, telefone, e-mail, CNPJ, CPF, IDs e links
   antes de salvar (regex + instrução à IA).
 - **AnyDesk:** se o atendimento foi resolvido por acesso remoto, **não documenta**.
-- **Categorização:** a IA classifica em uma categoria (Integrações, Impressão,
-  Fiscal, Financeiro, …) → cada categoria é um arquivo `.md`.
-- **Sem duplicar:** se já existir uma tratativa com o mesmo título, **atualiza**
-  o expandable; senão, anexa um novo.
+- **Organização por categoria:** a IA classifica em uma categoria preferida
+  (Tuna Pagamentos, Cardápio, iFood, Delivery, Impressão, Fiscal, Marketplace,
+  Integrações, Usuários, Configurações, Pedidos, Produção, Outros) — e **cria
+  uma nova** se nenhuma servir. Cada categoria é um arquivo `.md` (uma página),
+  e cada tratativa é um `<details>` expandable dentro dela.
+- **Sem duplicar / enriquecer:** antes de escrever, a IA recebe as tratativas
+  já existentes da categoria. Se a conversa corresponde a uma delas, **reutiliza
+  o título e enriquece** o conteúdo (não duplica); senão, cria uma nova.
+- **Conteúdo de cada expandable:** Problema, Sintomas, Causa, Como diagnosticar,
+  Como resolver, Observações.
 
 > **Como persiste (importante):** a API do GitBook **não escreve conteúdo**. Igual
 > ao projeto `gitbook-centraldeajuda`, o bot grava markdown (com `<details>`

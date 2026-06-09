@@ -11,7 +11,7 @@
 const { openai } = require("../clients");
 const { TREINAMENTO } = require("../config");
 const { buscarHistoricoChat } = require("../services/umbler");
-const { enviarTratativa } = require("./github");
+const { enviarTratativa, lerCategoria } = require("./github");
 
 // --------------------------------------
 // Data de uma mensagem (várias chaves possíveis)
@@ -83,32 +83,91 @@ function montarConversaTreinamento(mensagens, desde) {
 }
 
 // --------------------------------------
-// Prompt da geração da tratativa (categoria + título + corpo).
+// 1) Classifica a categoria (modelo econômico). Prefere a lista, mas pode
+//    criar uma categoria nova se nenhuma representar bem o problema.
 // --------------------------------------
 
-function promptSistema() {
-  return `Você transforma um atendimento de suporte REAL em uma tratativa de documentação para treinamento interno da equipe Accon.
+async function classificarCategoria(conversa) {
+  try {
+    const r = await openai.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
+        {
+          role: "system",
+          content: `Classifique o atendimento de suporte da Accon em UMA categoria.
+Prefira uma destas: ${TREINAMENTO.CATEGORIAS.join(", ")}.
+Se NENHUMA representar bem, responda uma categoria curta e adequada (1-3 palavras, ex: "Tuna Pagamentos").
+Responda SOMENTE o nome da categoria, sem aspas nem pontuação.`,
+        },
+        { role: "user", content: conversa },
+      ],
+      temperature: 0,
+      max_tokens: 20,
+    });
+
+    const cat = (r.choices[0].message.content || "")
+      .trim()
+      .replace(/^["'.\s]+|["'.\s]+$/g, "");
+
+    return cat || "Outros";
+  } catch (error) {
+    console.log("❌ Erro ao classificar categoria:", error.message);
+    return "Outros";
+  }
+}
+
+// --------------------------------------
+// 2) Gera a tratativa (modelo avançado). Recebe as tratativas existentes da
+//    categoria para REAPROVEITAR/ENRIQUECER a equivalente (sem duplicar).
+// --------------------------------------
+
+function promptTratativa(categoria, existentes) {
+  const base =
+    existentes && existentes.trim()
+      ? `TRATATIVAS JÁ EXISTENTES na categoria "${categoria}" (markdown com expandables <details>):\n\n${existentes}\n`
+      : `Ainda não há tratativas nesta categoria.\n`;
+
+  return `Você transforma um atendimento de suporte REAL da Accon em UMA tratativa de documentação para treinamento interno, na categoria "${categoria}".
 
 REGRAS:
 - Use SOMENTE o que está explícito na conversa. NÃO invente passos, telas, menus ou funcionalidades.
-- Anonimize qualquer dado pessoal/identificador que tenha escapado: nomes, telefone, e-mail, CNPJ, CPF, IDs de loja/pedido, valores financeiros, links privados. Nunca os inclua.
-- Foque no conhecimento reaproveitável: qual era o PROBLEMA, a CAUSA e a SOLUÇÃO/procedimento.
+- Anonimize qualquer dado pessoal/identificador que tenha escapado (nomes, telefone, e-mail, CNPJ, CPF, IDs, valores, links). Nunca os inclua.
+- UMA tratativa = UM problema específico. Não misture vários problemas.
 
-CATEGORIA: escolha exatamente UMA desta lista (use "Outros" se nenhuma servir):
-${TREINAMENTO.CATEGORIAS.join(", ")}
+REAPROVEITAMENTO (não duplicar conhecimento):
+${base}- Se a conversa atual corresponde a UMA das tratativas existentes acima, REUTILIZE o título EXATO dela e devolva um conteúdo ENRIQUECIDO (combine o conhecimento existente com o novo, melhorando o diagnóstico e o passo a passo).
+- Se for um problema diferente, crie um título NOVO, curto e específico (ex: "Como resolver erro de autenticação da Tuna").
 
-Responda APENAS um JSON válido no formato:
-{
-  "categoria": "<uma das categorias>",
-  "titulo": "<nome curto da tratativa, ex: 'iFood não sincroniza pedidos'>",
-  "markdown": "### Sintomas\\n...\\n\\n### Causa\\n...\\n\\n### Solução\\n..."
+CONTEÚDO (markdown com ### nas seções; omita uma seção se a conversa não trouxer a informação):
+### Problema
+### Sintomas
+### Causa
+### Como diagnosticar
+### Como resolver
+### Observações
+
+Responda APENAS um JSON válido:
+{ "titulo": "<título da tratativa>", "markdown": "<conteúdo em markdown>" }`;
 }
 
-No "markdown" use títulos com ### e listas quando fizer sentido. Seja fiel à conversa.`;
+async function gerarTratativa(conversa, categoria, existentes) {
+  const r = await openai.chat.completions.create({
+    model: "gpt-4.1",
+    messages: [
+      { role: "system", content: promptTratativa(categoria, existentes) },
+      { role: "user", content: conversa },
+    ],
+    temperature: 0.2,
+    max_tokens: 1800,
+    response_format: { type: "json_object" },
+  });
+
+  return JSON.parse(r.choices[0].message.content);
 }
 
 // --------------------------------------
-// Pipeline completo: gera e grava a tratativa. Retorna um status.
+// Pipeline completo: categoria -> tratativas existentes -> gera/enriquece
+// -> grava. Retorna um status.
 //   { status: "vazio" | "anydesk" | "erro" | "falha_persistencia" | "ok", categoria?, titulo? }
 // --------------------------------------
 
@@ -123,27 +182,24 @@ async function gerarTreinamento(chatId, desde) {
 
   const conversa = anonimizar(conversaBruta);
 
+  // 1) categoria
+  const categoria = await classificarCategoria(conversa);
+
+  // 2) tratativas já existentes na categoria (para enriquecer / não duplicar)
+  let existentes = "";
+  try {
+    existentes = await lerCategoria(categoria);
+  } catch {}
+
+  // 3) gera (ou enriquece) a tratativa
   let dados;
   try {
-    const r = await openai.chat.completions.create({
-      model: "gpt-4.1",
-      messages: [
-        { role: "system", content: promptSistema() },
-        { role: "user", content: conversa },
-      ],
-      temperature: 0.2,
-      max_tokens: 1500,
-      response_format: { type: "json_object" },
-    });
-    dados = JSON.parse(r.choices[0].message.content);
+    dados = await gerarTratativa(conversa, categoria, existentes);
   } catch (error) {
     console.log("❌ Erro ao gerar treinamento (IA):", error.message);
     return { status: "erro" };
   }
 
-  const categoria = TREINAMENTO.CATEGORIAS.includes(dados.categoria)
-    ? dados.categoria
-    : "Outros";
   const titulo = String(dados.titulo || "").trim();
   // anonimização extra no conteúdo final (defesa em profundidade)
   const markdown = anonimizar(String(dados.markdown || "").trim());

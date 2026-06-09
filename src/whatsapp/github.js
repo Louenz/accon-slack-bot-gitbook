@@ -137,8 +137,35 @@ async function enviarTratativa(categoria, titulo, corpo) {
   }
 }
 
+// --------------------------------------
+// Lê o conteúdo atual do arquivo de uma categoria (para a IA reaproveitar/
+// enriquecer tratativas existentes). Retorna "" se não houver/sem acesso.
+// --------------------------------------
+
+async function lerCategoria(categoria) {
+  if (!env.GITHUB_TOKEN || !env.GITHUB_REPO_TREINAMENTO) return "";
+
+  const caminho = `${slugCategoria(categoria)}.md`;
+
+  try {
+    const r = await axios.get(
+      `https://api.github.com/repos/${env.GITHUB_REPO_TREINAMENTO}/contents/${caminho}`,
+      {
+        headers: {
+          Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+          Accept: "application/vnd.github+json",
+        },
+      }
+    );
+    return Buffer.from(r.data.content, "base64").toString("utf-8");
+  } catch {
+    return ""; // 404 (categoria nova) ou sem acesso
+  }
+}
+
 module.exports = {
   enviarTratativa,
+  lerCategoria,
   inserirOuAtualizarExpandable,
   slugCategoria,
 };

@@ -58,21 +58,20 @@ const WHATSAPP = {
 // --------------------------------------
 
 const TREINAMENTO = {
-  // categorias para a IA classificar a tratativa
+  // categorias PREFERIDAS para a IA classificar a tratativa.
+  // A IA pode criar uma nova categoria se nenhuma representar bem o problema.
   CATEGORIAS: [
-    "Integrações",
+    "Tuna Pagamentos",
+    "Cardápio",
+    "iFood",
+    "Delivery",
     "Impressão",
     "Fiscal",
-    "Financeiro",
-    "Cardápio",
-    "Pedidos",
-    "Delivery",
-    "iFood",
     "Marketplace",
+    "Integrações",
     "Usuários",
-    "Configuração",
-    "Cadastro",
-    "Pagamentos",
+    "Configurações",
+    "Pedidos",
     "Produção",
     "Outros",
   ],
