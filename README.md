@@ -98,6 +98,16 @@ Umbler (o atendente não precisa lembrar de ativar):
   as notas de "Avaliação"/"Encerramento" do chatbot) → gera a documentação.
 - `#desativardoc` interrompe e **bloqueia** a documentação daquela conversa.
 
+> 💾 **Proteção contra restart:** o estado da captura (desde quando o atendimento
+> está em documentação) é **persistido em disco** (`documentacao-ia-whatsapp/state/`)
+> e **restaurado no boot** — se o nodemon/servidor reiniciar no meio de um
+> atendimento, a documentação ainda é gerada ao final. No encerramento, antes de
+> qualquer IA, um **snapshot bruto** do atendimento é salvo em
+> `documentacao-ia-whatsapp/raw/` (mensagens, imagens, horários), e a documentação
+> gerada é salva em `documentacao-ia-whatsapp/gerada/` — assim, mesmo que o
+> servidor reinicie durante a geração, nenhum atendimento é perdido. (pasta
+> ignorada pelo git)
+
 A janela capturada (do início ao fim) vira uma **tratativa de documentação** no
 espaço **"Treinamento IA Whatsapp"**:
 

@@ -11,8 +11,18 @@ const express = require("express");
 const { env } = require("../config");
 const { jaProcessado } = require("./dedupe");
 const { handleWebhook } = require("./handler");
+const { restaurarEstadosDoc } = require("./session");
 
 function startUmblerServer() {
+  // restaura atendimentos em documentação que ficaram em aberto antes de um
+  // restart (nodemon/deploy/crash) — nenhum atendimento é perdido.
+  const restaurados = restaurarEstadosDoc();
+  if (restaurados > 0) {
+    console.log(
+      `📂 ${restaurados} atendimento(s) em documentação restaurado(s) do disco.`
+    );
+  }
+
   const app = express();
 
   app.use(express.json({ limit: "50mb" }));

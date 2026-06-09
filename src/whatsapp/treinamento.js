@@ -12,6 +12,7 @@ const { openai } = require("../clients");
 const { TREINAMENTO } = require("../config");
 const { buscarHistoricoChat } = require("../services/umbler");
 const { enviarTratativa, lerCategoria } = require("./github");
+const persistencia = require("./persistencia");
 
 // --------------------------------------
 // Data de uma mensagem (várias chaves possíveis)
@@ -183,6 +184,27 @@ async function gerarTratativa(entrada, categoria, existentes, manual = false) {
 async function gerarTreinamento(chatId, desde) {
   const historico = await buscarHistoricoChat(chatId, 100);
 
+  // mensagens da janela (do início do atendimento até agora)
+  const janela = (historico || []).filter((m) => {
+    const ts = Date.parse(dataMsg(m));
+    return !desde || Number.isNaN(ts) || ts >= desde;
+  });
+
+  // SNAPSHOT BRUTO em disco ANTES de qualquer IA — se o servidor reiniciar
+  // durante a geração, o atendimento não se perde (pode ser regenerado).
+  if (janela.length) {
+    persistencia.salvarSnapshotBruto(chatId, {
+      chatId,
+      desde,
+      capturadoEm: new Date().toISOString(),
+      mensagens: janela,
+      imagens: janela
+        .map((m) => m?.file || m?.File)
+        .filter((f) => f && String(f.contentType || f.ContentType || "").startsWith("image/")),
+      meta: { totalMensagens: janela.length },
+    });
+  }
+
   const conversaBruta = montarConversaTreinamento(historico, desde);
   if (!conversaBruta) return { status: "vazio" };
 
@@ -214,6 +236,16 @@ async function gerarTreinamento(chatId, desde) {
   const markdown = anonimizar(String(dados.markdown || "").trim());
 
   if (!titulo || !markdown) return { status: "vazio" };
+
+  // salva a documentação gerada em disco ANTES de enviar ao GitBook — se o
+  // GitHub falhar ou o servidor reiniciar, a doc gerada não se perde.
+  persistencia.salvarDocGerada(chatId, {
+    chatId,
+    categoria,
+    titulo,
+    markdown,
+    geradoEm: new Date().toISOString(),
+  });
 
   const ok = await enviarTratativa(categoria, titulo, markdown);
 

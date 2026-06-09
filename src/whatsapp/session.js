@@ -13,6 +13,8 @@
 // Para testar é suficiente. Se precisar persistir entre reinícios ou
 // rodar em várias instâncias, troque por Redis/banco depois.
 
+const persistencia = require("./persistencia");
+
 const chatsEmModoIA = new Set();
 
 // chatId -> { empresa?: { cnpj, dados } }
@@ -75,11 +77,14 @@ function resetarConversa(chatId) {
 // --------------------------------------
 
 function iniciarDoc(chatId) {
-  docPorChat.set(chatId, { desde: Date.now() });
+  const desde = Date.now();
+  docPorChat.set(chatId, { desde });
+  persistencia.salvarEstadoDoc(chatId, desde); // sobrevive a restart
 }
 
 function pararDoc(chatId) {
   docPorChat.delete(chatId);
+  persistencia.removerEstadoDoc(chatId);
 }
 
 function estaDocAtivo(chatId) {
@@ -93,7 +98,17 @@ function obterDocInicio(chatId) {
 // #desativardoc: interrompe a captura e bloqueia a documentação desta conversa.
 function bloquearDoc(chatId) {
   docPorChat.delete(chatId);
+  persistencia.removerEstadoDoc(chatId);
   docBloqueado.add(chatId);
+}
+
+// Restaura os atendimentos em documentação do disco (chamado no boot).
+function restaurarEstadosDoc() {
+  const estados = persistencia.carregarEstadosDoc();
+  for (const e of estados) {
+    if (e?.chatId) docPorChat.set(e.chatId, { desde: e.desde || 0 });
+  }
+  return estados.length;
 }
 
 function docEstaBloqueado(chatId) {
@@ -114,4 +129,5 @@ module.exports = {
   obterDocInicio,
   bloquearDoc,
   docEstaBloqueado,
+  restaurarEstadosDoc,
 };
