@@ -8,8 +8,9 @@
 // (ignora notas internas, respostas da IA e comandos), anonimiza dados
 // sensíveis e descarta atendimentos resolvidos por acesso remoto (AnyDesk).
 
+const axios = require("axios");
 const { openai } = require("../clients");
-const { TREINAMENTO } = require("../config");
+const { env, TREINAMENTO, GITBOOK } = require("../config");
 const { buscarHistoricoChat, buscarContatoChat } = require("../services/umbler");
 const { enviarTratativa, lerCategoria } = require("./github");
 const { obterImagemBase64 } = require("./imagem");
@@ -212,36 +213,106 @@ async function montarConversaComMidia(mensagens, desde) {
 }
 
 // --------------------------------------
-// 1) Classifica a categoria (modelo econômico). Prefere a lista, mas pode
-//    criar uma categoria nova se nenhuma representar bem o problema.
+// Lê a estrutura de categorias da Central de Ajuda Accon (SOMENTE LEITURA) para
+// usar como referência de classificação. Cacheia por 1h. Nunca escreve.
+// Retorna [{ nome, subs: [...] }].
+// --------------------------------------
+
+let _catCache = null;
+let _catCacheEm = 0;
+const CAT_TTL = 60 * 60 * 1000; // 1 hora
+
+async function obterCategoriasCentral() {
+  if (_catCache && Date.now() - _catCacheEm < CAT_TTL) return _catCache;
+  try {
+    const r = await axios.get(
+      `https://api.gitbook.com/v1/spaces/${GITBOOK.CENTRAL_AJUDA_SPACE_ID}/content`,
+      { headers: { Authorization: `Bearer ${env.GITBOOK_TOKEN}` }, timeout: 15000 }
+    );
+    const pages = r.data?.pages || [];
+    const tree = pages
+      .map((p) => ({
+        nome: String(p.title || "").trim(),
+        subs: (p.pages || []).map((s) => String(s.title || "").trim()).filter(Boolean),
+      }))
+      .filter((c) => c.nome);
+    if (tree.length) {
+      _catCache = tree;
+      _catCacheEm = Date.now();
+    }
+    return tree;
+  } catch (error) {
+    console.log(
+      "⚠️ Não consegui ler categorias da Central de Ajuda:",
+      error.response?.status,
+      error.message
+    );
+    return _catCache || [];
+  }
+}
+
+function formatarCategorias(tree) {
+  return tree
+    .map((c) => (c.subs.length ? `- ${c.nome}: ${c.subs.join(", ")}` : `- ${c.nome}`))
+    .join("\n");
+}
+
+// --------------------------------------
+// 1) Classifica a categoria ESPELHANDO a Central de Ajuda Accon: identifica o
+//    tema, procura a categoria/subcategoria mais compatível na Central e usa o
+//    nome exato dela. Só cria categoria nova se nenhuma representar o assunto.
 // --------------------------------------
 
 async function classificarCategoria(conversa) {
+  const tree = await obterCategoriasCentral();
+  const usouCentral = tree.length > 0;
+  const lista = usouCentral
+    ? formatarCategorias(tree)
+    : TREINAMENTO.CATEGORIAS.map((c) => `- ${c}`).join("\n");
+
   try {
     const r = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [
         {
           role: "system",
-          content: `Classifique o atendimento de suporte da Accon em UMA categoria.
-Prefira uma destas: ${TREINAMENTO.CATEGORIAS.join(", ")}.
-Se NENHUMA representar bem, responda uma categoria curta e adequada (1-3 palavras, ex: "Tuna Pagamentos").
-Responda SOMENTE o nome da categoria, sem aspas nem pontuação.`,
+          content: `Você classifica um atendimento de suporte da Accon em UMA categoria, ESPELHANDO a organização da Central de Ajuda Accon (referência oficial de nomes).
+
+CATEGORIAS DISPONÍVEIS (formato "Categoria: subcategorias"):
+${lista}
+
+REGRAS (nesta ordem de prioridade):
+1. Identifique o ASSUNTO PRINCIPAL do atendimento.
+2. Encontre a categoria ou SUBCATEGORIA acima que melhor representa o assunto (correspondência exata ou semântica) e use o NOME EXATO dela.
+3. Prefira a SUBCATEGORIA mais específica quando ela combinar (ex.: "Robô WhatsApp" em vez de "Delivery"; "Notas fiscais" em vez de "Fiscal"; "Integrações de marketplace" para iFood/marketplace).
+4. NÃO use categorias genéricas inventadas (ex.: "Outros", "Problemas Gerais", "Configurações") se houver uma compatível acima.
+5. Só crie uma categoria NOVA quando NENHUMA acima representar o assunto.
+
+Responda APENAS um JSON válido:
+{ "tema": "<assunto principal em 1-3 palavras>", "categoriaCentral": "<categoria/subcategoria da lista que combina, ou string vazia se nenhuma>", "categoria": "<categoria a USAR>", "nova": <true se for categoria nova, false se veio da lista> }`,
         },
         { role: "user", content: conversa },
       ],
       temperature: 0,
-      max_tokens: 20,
+      max_tokens: 150,
+      response_format: { type: "json_object" },
     });
 
-    const cat = (r.choices[0].message.content || "")
-      .trim()
-      .replace(/^["'.\s]+|["'.\s]+$/g, "");
+    const d = JSON.parse(r.choices[0].message.content || "{}");
+    const categoria = String(d.categoria || "").trim() || "Dúvidas";
 
-    return cat || "Outros";
+    // AUDITORIA da categorização
+    console.log(
+      `🗂️ Categorização (${usouCentral ? "Central de Ajuda" : "lista padrão - Central indisponível"}):\n` +
+        `   Tema identificado: ${d.tema || "(?)"}\n` +
+        `   Categoria encontrada na Central: ${d.categoriaCentral || "(nenhuma)"}\n` +
+        `   Categoria utilizada: ${categoria}${d.nova ? " (NOVA)" : ""}`
+    );
+
+    return categoria;
   } catch (error) {
     console.log("❌ Erro ao classificar categoria:", error.message);
-    return "Outros";
+    return "Dúvidas";
   }
 }
 
@@ -432,4 +503,6 @@ module.exports = {
   montarConversaTreinamento,
   montarConversaComMidia,
   gerarTratativa,
+  classificarCategoria,
+  obterCategoriasCentral,
 };

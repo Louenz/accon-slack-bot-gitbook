@@ -195,6 +195,10 @@ const GITBOOK = {
   TREINAMENTO_SPACE_ID: "PWe8JBlvnABvGnRhvJGa",
   TREINAMENTO_SPACE_NAME: "Treinamento IA Whatsapp",
 
+  // Central de Ajuda Accon — SOMENTE LEITURA, usada como referência de
+  // categorias para classificar os treinamentos (espelhar a organização oficial).
+  CENTRAL_AJUDA_SPACE_ID: "f70xibkjOuE6vUYi8iTR",
+
   // espaços SOMENTE LEITURA (jamais gravar): Central de Ajuda + Base de Conhecimento
   READONLY_SPACE_IDS: ["f70xibkjOuE6vUYi8iTR", "lRDxW1FXy0nHj5b8YF1w"],
 
