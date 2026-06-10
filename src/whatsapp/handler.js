@@ -50,6 +50,10 @@ const { gerarRespostaIA } = require("./ia");
 const { obterImagemBase64 } = require("./imagem");
 const { agendarProcessamento, limparBuffer } = require("./buffer");
 const { gerarTreinamento, treinarManual } = require("./treinamento");
+const {
+  gerarRelatorioFinalizados,
+  parseArgs: parseFinalizadosArgs,
+} = require("./finalizados");
 
 // --------------------------------------
 // Mensagens fixas (notas internas)
@@ -68,6 +72,7 @@ const MSG_COMANDOS =
   "#resetar\n→ Remove todos os dados armazenados pela IA nesta conversa e reinicia o atendimento do zero.\n\n" +
   "#desativardoc\n→ Mantém a IA ativa, mas interrompe a documentação automática desta conversa.\n\n" +
   "#treinamento [texto]\n→ Ensina uma nova informação diretamente para a IA. O conteúdo será categorizado e armazenado na base de treinamento para uso futuro.\n\n" +
+  "#finalizados\n→ Exibe os 15 atendimentos finalizados mais recentes e informa se cada um foi documentado ou não.\n\n" +
   "#comandos\n→ Exibe esta lista de comandos.";
 
 const MSG_RESET =
@@ -174,6 +179,7 @@ const COMANDOS = [
   "#cnpj",
   "#resetar",
   "#treinamento",
+  "#finalizados",
   "#comandos",
 ];
 
@@ -235,10 +241,44 @@ async function executarComando(chatId, texto) {
     return;
   }
 
+  if (t.startsWith("#finalizados")) {
+    await comandoFinalizados(chatId, texto);
+    return;
+  }
+
   if (t.startsWith("#comandos")) {
     await enviarNotaInterna(chatId, MSG_COMANDOS);
     return;
   }
+}
+
+// --------------------------------------
+// #finalizados [n | nao-documentados | hoje] -> lista os últimos atendimentos
+// finalizados na Umbler e marca quais já têm documentação gerada.
+// --------------------------------------
+
+async function comandoFinalizados(chatId, texto) {
+  const args = parseFinalizadosArgs(texto);
+
+  let relatorio;
+  try {
+    relatorio = await gerarRelatorioFinalizados(args);
+  } catch (error) {
+    console.log("❌ Erro ao consultar finalizados:", error.message);
+    await enviarNotaInterna(
+      chatId,
+      "❌ Não consegui consultar os atendimentos finalizados agora. Tente novamente em instantes."
+    );
+    return;
+  }
+
+  // LOG da consulta (auditoria)
+  console.log(
+    `📋 Consulta de finalizados executada | origem(chat)=${chatId} | ` +
+      `filtro=${args.filtro} | quantidade retornada=${relatorio.quantidade}`
+  );
+
+  await enviarNotaInterna(chatId, relatorio.texto);
 }
 
 // --------------------------------------

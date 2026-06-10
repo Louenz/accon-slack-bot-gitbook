@@ -107,10 +107,26 @@ function salvarDocGerada(chatId, doc) {
   }
 }
 
+// --------------------------------------
+// Verifica se um atendimento já tem documentação gerada (gerada/<...>-<chatId>.json).
+// Usado pelo comando #finalizados para marcar (documentado) / (não documentado).
+// --------------------------------------
+
+function documentacaoExiste(chatId) {
+  if (!chatId) return false;
+  try {
+    const sufixo = `-atendimento-${nomeSeguro(chatId)}.json`;
+    return fs.readdirSync(GERADA_DIR).some((f) => f.endsWith(sufixo));
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   salvarEstadoDoc,
   removerEstadoDoc,
   carregarEstadosDoc,
   salvarSnapshotBruto,
   salvarDocGerada,
+  documentacaoExiste,
 };

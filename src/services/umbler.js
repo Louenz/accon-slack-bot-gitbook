@@ -81,7 +81,57 @@ async function buscarHistoricoChat(chatId, includeMessages = 20) {
   }
 }
 
+// --------------------------------------
+// Lista os atendimentos FINALIZADOS (chats fechados), do mais recente para
+// o mais antigo. Usado pelo comando administrativo #finalizados.
+//
+// A API da Umbler só lista chats abertos por padrão; é o parâmetro
+// ChatState=Closed que traz os encerrados. Ordenação por última mensagem,
+// decrescente. Retorna uma lista já normalizada (id, contato, setor, data).
+// --------------------------------------
+
+async function listarChatsFinalizados(take = 15) {
+  try {
+    const response = await axios.get(
+      "https://app-utalk.umbler.com/api/v1/chats/",
+      {
+        headers: {
+          Authorization: `Bearer ${env.UMBLER_TOKEN}`,
+          accept: "application/json",
+        },
+        params: {
+          organizationId: env.ORGANIZATION_ID,
+          ChatState: "Closed", // <- só os encerrados (Open | Closed | All)
+          ChatOrderBy: "LastMessage",
+          Order: "Desc", // mais recente primeiro
+          Take: Math.min(250, Math.max(1, take)), // maxTake da API = 250
+        },
+        timeout: 20000,
+      }
+    );
+
+    const items = response.data?.items || [];
+    return items.map((c) => ({
+      chatId: c?.id || "",
+      // o nome do contato já vem como "Atendente - Empresa" nesta organização
+      contato: c?.contact?.name || "(sem nome)",
+      telefone: c?.contact?.phoneNumber || "",
+      setor: c?.sector?.name || "",
+      // data de finalização (cai para o último evento se vier vazia)
+      finalizadoEm: c?.closedAtUTC || c?.eventAtUTC || null,
+    }));
+  } catch (error) {
+    console.log(
+      "❌ Erro ao listar atendimentos finalizados na Umbler:",
+      error.response?.status,
+      error.message
+    );
+    return [];
+  }
+}
+
 module.exports = {
   enviarNotaInterna,
   buscarHistoricoChat,
+  listarChatsFinalizados,
 };
