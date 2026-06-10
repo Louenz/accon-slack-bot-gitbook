@@ -26,6 +26,8 @@ REGRAS:
 
 CONTEXTO (use sempre, nesta ordem de prioridade):
 1. DADOS DA EMPRESA (cadastro, versão, integrações) — leve em conta ao responder.
+   - Se o cliente tiver MAIS DE UMA loja (lista "LOJAS DO CLIENTE"), identifique pela conversa de qual loja é a dúvida (nome, CNPJ ou contexto). Se não der para saber, PERGUNTE de qual loja se trata antes de prosseguir.
+   - Use a VERSÃO da loja correspondente. Se a loja em questão for versão 1.0, NÃO dê suporte automático: informe que essa versão é atendida pelo time especialista e oriente aguardar.
 2. HISTÓRICO RECENTE da conversa — entenda o assunto em andamento; a mensagem atual é continuação dele.
 3. ÁUDIOS enviados (transcrições da fala do cliente) — trate como fala do próprio cliente, parte da mensagem atual.
 4. IMAGENS enviadas (prints de erro, telas, configurações) — interprete-as no contexto da conversa, nunca como pedido isolado.
@@ -41,8 +43,19 @@ async function gerarRespostaIA({
   dadosEmpresa = "",
   imagens = [],
   audios = [],
+  lojas = [],
 }) {
   try {
+    // lista resumida das lojas do contato (para identificar a loja certa)
+    const lojasText = (lojas || [])
+      .map(
+        (l) =>
+          `- ${l.nome} | CNPJ ${l.cnpj} | versão ${l.versao || "?"}` +
+          `${l.id20 && l.id20 !== "N/A" ? ` | ID 2.0 ${l.id20}` : ""}` +
+          `${l.id10 && l.id10 !== "N/A" ? ` | ID 1.0 ${l.id10}` : ""}`
+      )
+      .join("\n");
+
     const docsText = docs
       .map(
         (doc, index) => `[DOC ${index + 1}] ${doc.title}\n${doc.body}`
@@ -62,6 +75,9 @@ async function gerarRespostaIA({
       : pergunta;
 
     const partesTexto = [
+      lojas && lojas.length > 1
+        ? `LOJAS DO CLIENTE (este contato tem mais de uma loja — identifique a correta):\n${lojasText}`
+        : "",
       dadosEmpresa ? `DADOS DA EMPRESA:\n${dadosEmpresa}` : "",
       transcricao ? `HISTÓRICO RECENTE DA CONVERSA:\n${transcricao}` : "",
       audiosText ? `ÁUDIOS DO CLIENTE (transcritos):\n${audiosText}` : "",

@@ -42,7 +42,9 @@ function chaveCnpj(cnpj) {
   return String(cnpj || "").replace(/\D/g, "");
 }
 
-// monta o objeto loja a partir da resposta (texto) da API Accon
+// monta o objeto loja a partir da resposta (texto) da API Accon.
+// `dados` (texto bruto) fica em memória para a IA usar — NÃO é persistido na
+// nota (blocoLoja/serializar só gravam os 5 campos estruturados).
 function montarLoja(dadosApi, cnpjFormatado) {
   return {
     nome: extrairNomeEmpresa(dadosApi) || "(não informado)",
@@ -50,6 +52,7 @@ function montarLoja(dadosApi, cnpjFormatado) {
     id10: extrairIdLoja(dadosApi, "1.0"),
     id20: extrairIdLoja(dadosApi, "2.0"),
     versao: detectarVersaoAccon(dadosApi),
+    dados: dadosApi,
   };
 }
 
@@ -169,14 +172,14 @@ async function revalidarUma(cnpj) {
 
 async function revalidarLojas(chatId) {
   const contactId = await buscarIdContato(chatId);
-  if (!contactId) return;
+  if (!contactId) return [];
 
   const notas = await buscarNotasContato(contactId);
   const notaLojas = notas.find((n) => String(n.content || "").includes(MARCADOR));
-  if (!notaLojas) return; // contato sem lojas cadastradas -> nada a fazer
+  if (!notaLojas) return []; // contato sem lojas cadastradas -> nada a fazer
 
   const lojas = parse(notaLojas.content);
-  if (!lojas.length) return;
+  if (!lojas.length) return [];
 
   const atualizadas = [];
   let removidas = 0;
@@ -193,6 +196,9 @@ async function revalidarLojas(chatId) {
       (removidas ? `, ${removidas} CNPJ inválido(s) removido(s)` : "") +
       ` (contato ${contactId}).`
   );
+
+  // devolve as lojas atualizadas para carregar no contexto da conversa
+  return atualizadas;
 }
 
 module.exports = {

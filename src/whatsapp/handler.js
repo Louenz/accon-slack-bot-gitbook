@@ -120,11 +120,27 @@ async function handleWebhook(body) {
       const desde = await calcularInicioContexto(chatId, eventAt);
       iniciarDoc(chatId, desde);
     }
-    // novo atendimento: revalida as lojas conhecidas do contato na API Accon e
-    // atualiza as Observações (assíncrono, não bloqueia o atendimento).
-    revalidarLojas(chatId).catch((error) =>
-      console.log("⚠️ Falha ao revalidar lojas:", error.message)
-    );
+    // novo atendimento: revalida as lojas conhecidas do contato na API Accon,
+    // atualiza as Observações e CARREGA as lojas no contexto da conversa para a
+    // IA já identificar o cliente sem precisar de #cnpj.
+    try {
+      const lojasContato = await revalidarLojas(chatId);
+      if (lojasContato && lojasContato.length) {
+        definirContexto(chatId, { lojas: lojasContato });
+        // 1 loja só -> seleciona automaticamente (dispensa #cnpj)
+        if (lojasContato.length === 1 && !obterContexto(chatId).empresa) {
+          const l = lojasContato[0];
+          definirContexto(chatId, {
+            empresa: { cnpj: l.cnpj, dados: l.dados || "", versao: l.versao, nome: l.nome },
+          });
+          console.log(`🏬 Loja única carregada no contexto: ${l.nome} (v${l.versao}).`);
+        } else if (lojasContato.length > 1) {
+          console.log(`🏬 ${lojasContato.length} lojas do contato carregadas no contexto.`);
+        }
+      }
+    } catch (error) {
+      console.log("⚠️ Falha ao revalidar/carregar lojas:", error.message);
+    }
     return;
   }
   if (limpo && ehGatilhoFimDoc(limpo)) {
@@ -156,9 +172,14 @@ async function handleWebhook(body) {
   if (!estaEmModoIA(chatId)) return;
 
   const ctx = obterContexto(chatId);
+  const lojasContato = ctx.lojas || [];
 
-  // PRIORIDADE 2 e 3: precisa de CNPJ + versão já definidos (via #cnpj)
-  if (!ctx.empresa) {
+  // empresa selecionada: #cnpj tem prioridade; senão, loja única carregada.
+  let empresa = ctx.empresa || null;
+  if (!empresa && lojasContato.length === 1) empresa = lojasContato[0];
+
+  // Sem NENHUMA loja conhecida (nem #cnpj nem cadastro no contato) -> pede CNPJ.
+  if (!empresa && lojasContato.length === 0) {
     if (!ctx.avisadoSemCnpj) {
       definirContexto(chatId, { avisadoSemCnpj: true });
       await enviarNotaInterna(
@@ -169,8 +190,10 @@ async function handleWebhook(body) {
     return;
   }
 
-  // PRIORIDADE 4: loja 1.0 -> não há atendimento automático
-  if (ctx.empresa.versao === "1.0") {
+  // Loja SELECIONADA (única ou via #cnpj) na versão 1.0 -> sem atendimento
+  // automático. Quando há múltiplas lojas e nenhuma selecionada, `empresa` é
+  // null: a IA identifica a loja e trata o 1.0 conforme o prompt.
+  if (empresa && empresa.versao === "1.0") {
     await enviarNotaInterna(chatId, MSG_ACCON_1_0);
     return;
   }
@@ -467,9 +490,11 @@ async function processarAgrupado({ chatId, pergunta, imagens, transcricoes }) {
     return;
   }
 
-  // PRIORIDADE 1: dados da empresa (API Accon), já coletados na sessão
+  // PRIORIDADE 1: dados da(s) loja(s) do cliente (API Accon), já no contexto
   const ctx = obterContexto(chatId);
-  const dadosEmpresa = ctx.empresa?.dados || "";
+  const lojas = ctx.lojas || [];
+  const empresa = ctx.empresa || (lojas.length === 1 ? lojas[0] : null);
+  const dadosEmpresa = empresa?.dados || "";
 
   // PRIORIDADE 2: contexto recente da conversa (memória), ignorando o que
   // veio antes de um eventual #resetar.
@@ -499,6 +524,7 @@ async function processarAgrupado({ chatId, pergunta, imagens, transcricoes }) {
     dadosEmpresa,
     imagens,
     audios,
+    lojas,
   });
 
   resposta = cleanText(resposta);
