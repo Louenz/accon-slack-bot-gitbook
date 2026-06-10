@@ -144,6 +144,60 @@ function inserirOuAtualizarExpandable(conteudoAtual, titulo, corpo) {
 }
 
 // --------------------------------------
+// Garante que a categoria esteja no SUMMARY.md (índice do GitBook). Sem isso,
+// o arquivo é sincronizado mas NÃO aparece como página no espaço. Idempotente.
+// --------------------------------------
+
+async function garantirNoSummary(categoria, caminho) {
+  const baseUrl = `https://api.github.com/repos/${env.GITHUB_REPO_TREINAMENTO}/contents/SUMMARY.md`;
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    Accept: "application/vnd.github+json",
+  };
+
+  try {
+    let conteudo = "# Table of contents\n\n";
+    let sha;
+
+    try {
+      const r = await axios.get(baseUrl, { headers });
+      sha = r.data.sha;
+      conteudo = Buffer.from(r.data.content, "base64").toString("utf-8");
+    } catch (e) {
+      if (e.response?.status !== 404) throw e; // 404 = SUMMARY novo
+    }
+
+    // coleta os itens de lista já existentes e adiciona o novo (sem duplicar).
+    // Reconstrói no formato canônico do GitBook (cabeçalho + linha em branco).
+    const itens = (conteudo.match(/^\s*\*\s*\[[^\]]*\]\([^)]*\)\s*$/gm) || []).map(
+      (s) => s.trim()
+    );
+    if (itens.some((it) => it.includes(`(${caminho})`))) return true; // idempotente
+    itens.push(`* [${categoria}](${caminho})`);
+
+    const novo = `# Table of contents\n\n${itens.join("\n")}\n`;
+
+    await axios.put(
+      baseUrl,
+      {
+        message: `Treinamento IA: adiciona ${categoria} ao índice`,
+        content: Buffer.from(novo).toString("base64"),
+        ...(sha ? { sha } : {}),
+      },
+      { headers }
+    );
+    return true;
+  } catch (error) {
+    console.log(
+      "⚠️ Não consegui atualizar o SUMMARY.md:",
+      error.response?.status,
+      error.response?.data?.message || error.message
+    );
+    return false;
+  }
+}
+
+// --------------------------------------
 // Grava a tratativa no arquivo da categoria (cria se não existir).
 // --------------------------------------
 
@@ -196,6 +250,9 @@ async function enviarTratativa(categoria, titulo, corpo) {
       { headers }
     );
 
+    // garante a categoria no índice do GitBook (senão a página não aparece)
+    await garantirNoSummary(categoria, caminho);
+
     return true;
   } catch (error) {
     console.log(
@@ -238,4 +295,5 @@ module.exports = {
   lerCategoria,
   inserirOuAtualizarExpandable,
   slugCategoria,
+  garantirNoSummary,
 };
