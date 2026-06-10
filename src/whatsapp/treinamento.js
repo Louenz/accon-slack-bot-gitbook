@@ -388,13 +388,15 @@ ESTRUTURA OBRIGATÓRIA (markdown, use ### nas seções; omita uma seção apenas
 ### Erros Comuns
 ### Boas Práticas
 ### Como Explicar ao Cliente
+### Perguntas que a IA Deve Fazer
 ### Como a IA Deve Responder Futuramente
 ### Observações
 
 DETALHES DAS SEÇÕES:
 - "Solução Aplicada": o que de fato resolveu o caso — pergunte-se "o que o atendente fez que resolveu?" e registre.
 - "Procedimento Oficial": o passo a passo conforme a Central de Ajuda Accon (use a documentação oficial fornecida).
-- "Como a IA Deve Responder Futuramente": passo a passo de como a IA deve conduzir o atendimento quando um cliente relatar este problema (ex.: 1. confirmar o cenário; 2. pedir as informações necessárias; 3. verificar a configuração X; 4. orientar conforme o procedimento oficial; 5. confirmar a resolução).
+- "Perguntas que a IA Deve Fazer": lista de PERGUNTAS DE DIAGNÓSTICO objetivas que a IA deve fazer ANTES de sugerir solução para este problema — que reduzam possibilidades e levem à causa raiz (ex.: modelo/versão, quando começou, mensagem de erro, se ocorre sempre ou às vezes, se já funcionou antes). Baseie-se no que o atendente perguntou e no procedimento oficial. SEMPRE preencha esta seção.
+- "Como a IA Deve Responder Futuramente": passo a passo de como a IA deve conduzir o atendimento quando um cliente relatar este problema (ex.: 1. confirmar o cenário; 2. fazer as perguntas de diagnóstico acima; 3. verificar a configuração X; 4. orientar conforme o procedimento oficial; 5. confirmar a resolução).
 
 Responda APENAS um JSON válido:
 { "titulo": "<título da tratativa>", "markdown": "<conteúdo em markdown com as seções acima>" }`;

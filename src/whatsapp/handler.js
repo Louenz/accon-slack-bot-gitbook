@@ -21,7 +21,7 @@
 // alterar o comportamento do Slack. A geração da resposta é própria
 // (whatsapp/ia.js). Tudo é postado como NOTA INTERNA (cliente não vê).
 
-const { PUBLIC_SPACES, TREINAMENTO } = require("../config");
+const { PUBLIC_SPACES, TREINAMENTO, GITBOOK } = require("../config");
 const { searchGitBook, getFullPageContent } = require("../services/gitbook");
 const {
   enviarNotaInterna,
@@ -605,7 +605,13 @@ async function processarAgrupado({ chatId, pergunta, imagens, transcricoes }) {
   // A busca usa texto + transcrições de áudio (essencial quando o cliente
   // manda só áudio, sem texto).
   const textoBusca = [pergunta, ...audios].filter(Boolean).join(" ").trim();
-  let docs = await searchGitBook(textoBusca, PUBLIC_SPACES);
+  // busca na Central de Ajuda (oficial) E no Treinamento IA Whatsapp (perguntas
+  // de diagnóstico e como responder, aprendidas de atendimentos anteriores).
+  const espacosBusca = [
+    ...PUBLIC_SPACES,
+    { name: GITBOOK.TREINAMENTO_SPACE_NAME, id: GITBOOK.TREINAMENTO_SPACE_ID },
+  ];
+  let docs = await searchGitBook(textoBusca, espacosBusca);
   if (docs[0]) {
     const fullPage = await getFullPageContent(docs[0].spaceId, docs[0].pageId);
     if (fullPage) {
