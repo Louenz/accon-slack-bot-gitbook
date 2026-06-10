@@ -173,6 +173,9 @@ async function montarConversaComMidia(mensagens, desde) {
     if (desde && !Number.isNaN(ts) && ts < desde) continue;
 
     const origem = m?.source || m?.Source;
+    // ignora mensagens de bot/triagem (não são do cliente nem do atendente) —
+    // relevante porque a janela agora inclui o período antes da transferência.
+    if (origem === "Bot") continue;
     const autor = origem === "Member" ? "ATENDENTE" : "CLIENTE";
 
     // texto

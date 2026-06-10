@@ -98,7 +98,8 @@ function ehGatilhoFimDoc(texto) {
 // ======================================
 
 async function handleWebhook(body) {
-  const { chatId, texto, source, isPrivate, file } = extrairDadosWebhook(body);
+  const { chatId, texto, source, isPrivate, file, eventAt } =
+    extrairDadosWebhook(body);
 
   if (!chatId) return;
 
@@ -111,7 +112,8 @@ async function handleWebhook(body) {
   //  - FIM: o atendimento é encerrado -> gera a documentação.
   // --------------------------------------
   if (limpo && ehGatilhoInicioDoc(limpo)) {
-    if (!docEstaBloqueado(chatId)) iniciarDoc(chatId);
+    // recua a janela p/ capturar o contexto enviado ANTES da transferência
+    if (!docEstaBloqueado(chatId)) iniciarDoc(chatId, eventAt);
     return;
   }
   if (limpo && ehGatilhoFimDoc(limpo)) {

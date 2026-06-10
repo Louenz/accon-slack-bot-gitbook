@@ -29,6 +29,13 @@ function extrairDadosWebhook(body) {
     contactPhone: contact?.PhoneNumber || contact?.phoneNumber || "",
     // arquivo anexado (imagem, etc.), se houver
     file: lastMessage?.File || lastMessage?.file || null,
+    // horário do evento desta mensagem (usado p/ recuar a janela na transferência)
+    eventAt:
+      lastMessage?.EventAtUTC ||
+      lastMessage?.eventAtUTC ||
+      lastMessage?.CreatedAtUTC ||
+      lastMessage?.createdAtUTC ||
+      null,
   };
 }
 

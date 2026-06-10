@@ -13,6 +13,7 @@
 // Para testar é suficiente. Se precisar persistir entre reinícios ou
 // rodar em várias instâncias, troque por Redis/banco depois.
 
+const { WHATSAPP } = require("../config");
 const persistencia = require("./persistencia");
 
 const chatsEmModoIA = new Set();
@@ -76,8 +77,15 @@ function resetarConversa(chatId) {
 // Marca o instante de início para delimitar a janela da conversa.
 // --------------------------------------
 
-function iniciarDoc(chatId) {
-  const desde = Date.now();
+// Inicia a captura recuando a janela em CONTEXT_LOOKBACK_MINUTES a partir do
+// horário da transferência — assim a dúvida/prints/áudios enviados ANTES da
+// transferência para o Suporte entram na documentação. Se houver menos
+// histórico que a janela, o filtro simplesmente inclui o que existir.
+function iniciarDoc(chatId, transferenciaEm) {
+  const lookbackMin = WHATSAPP.CONTEXT_LOOKBACK_MINUTES || 5;
+  const base = transferenciaEm ? Date.parse(transferenciaEm) : Date.now();
+  const baseMs = Number.isNaN(base) ? Date.now() : base;
+  const desde = baseMs - lookbackMin * 60 * 1000;
   docPorChat.set(chatId, { desde });
   persistencia.salvarEstadoDoc(chatId, desde); // sobrevive a restart
 }
