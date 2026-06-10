@@ -23,7 +23,11 @@
 
 const { PUBLIC_SPACES, TREINAMENTO } = require("../config");
 const { searchGitBook, getFullPageContent } = require("../services/gitbook");
-const { enviarNotaInterna, buscarHistoricoChat } = require("../services/umbler");
+const {
+  enviarNotaInterna,
+  buscarHistoricoChat,
+  buscarNomeMembro,
+} = require("../services/umbler");
 const { cleanText } = require("../utils/text");
 const { extrairDadosWebhook } = require("./parser");
 const {
@@ -51,7 +55,13 @@ const { obterImagemBase64 } = require("./imagem");
 const { transcreverAudio } = require("./audio");
 const { agendarProcessamento, limparBuffer } = require("./buffer");
 const { calcularInicioContexto } = require("./contexto");
-const { salvarLoja, montarLoja, revalidarLojas } = require("./lojas");
+const {
+  salvarLoja,
+  montarLoja,
+  revalidarLojas,
+  limparObservacoes,
+  agoraFormatado,
+} = require("./lojas");
 const { gerarTreinamento, treinarManual } = require("./treinamento");
 const {
   gerarRelatorioFinalizados,
@@ -76,6 +86,7 @@ const MSG_COMANDOS =
   "#desativardoc\n→ Mantém a IA ativa, mas interrompe a documentação automática desta conversa.\n\n" +
   "#treinamento [texto]\n→ Ensina uma nova informação diretamente para a IA. O conteúdo será categorizado e armazenado na base de treinamento para uso futuro.\n\n" +
   "#finalizados\n→ Exibe os 15 atendimentos finalizados mais recentes e informa se cada um foi documentado ou não.\n\n" +
+  "#limpar\n→ Remove completamente todas as informações armazenadas nas Observações do contato atual.\n\n" +
   "#comandos\n→ Exibe esta lista de comandos.";
 
 const MSG_RESET =
@@ -100,7 +111,7 @@ function ehGatilhoFimDoc(texto) {
 // ======================================
 
 async function handleWebhook(body) {
-  const { chatId, texto, source, isPrivate, file, eventAt } =
+  const { chatId, texto, source, isPrivate, file, eventAt, autorId } =
     extrairDadosWebhook(body);
 
   if (!chatId) return;
@@ -157,7 +168,7 @@ async function handleWebhook(body) {
   // --------------------------------------
   if (isPrivate === true) {
     if (ehComando(limpo)) {
-      await executarComando(chatId, limpo);
+      await executarComando(chatId, limpo, autorId);
     }
     return;
   }
@@ -228,6 +239,7 @@ const COMANDOS = [
   "#resetar",
   "#treinamento",
   "#finalizados",
+  "#limpar",
   "#comandos",
 ];
 
@@ -236,7 +248,7 @@ function ehComando(texto) {
   return COMANDOS.some((cmd) => t.startsWith(cmd));
 }
 
-async function executarComando(chatId, texto) {
+async function executarComando(chatId, texto, autorId) {
   const t = texto.toLowerCase();
 
   // IMPORTANTE: #desativardoc vem ANTES de #desativar (prefixo em comum).
@@ -294,10 +306,55 @@ async function executarComando(chatId, texto) {
     return;
   }
 
+  if (t.startsWith("#limpar")) {
+    await comandoLimpar(chatId, autorId);
+    return;
+  }
+
   if (t.startsWith("#comandos")) {
     await enviarNotaInterna(chatId, MSG_COMANDOS);
     return;
   }
+}
+
+// --------------------------------------
+// #limpar -> remove COMPLETAMENTE as Observações do contato atual.
+// Só por nota interna (atendente). Registra log de auditoria.
+// --------------------------------------
+
+async function comandoLimpar(chatId, autorId) {
+  let res;
+  try {
+    res = await limparObservacoes(chatId);
+  } catch (error) {
+    console.log("❌ Erro ao limpar observações:", error.message);
+    await enviarNotaInterna(
+      chatId,
+      "❌ Não consegui limpar as observações agora. Tente novamente em instantes."
+    );
+    return;
+  }
+
+  if (!res.ok) {
+    await enviarNotaInterna(
+      chatId,
+      "❌ Não consegui identificar o contato desta conversa para limpar as observações."
+    );
+    return;
+  }
+
+  // LOG de auditoria: quem executou, quando e qual contato
+  const autor = (await buscarNomeMembro(autorId)) || autorId || "(atendente)";
+  console.log(
+    `🧹 Ação: Limpeza das observações | Executado por: ${autor} | ` +
+      `Data: ${agoraFormatado()} | Contato: ${res.contato || "(?)"} | ` +
+      `notas removidas: ${res.removidas}`
+  );
+
+  await enviarNotaInterna(
+    chatId,
+    "🧹 Observações do contato limpas com sucesso.\n\nTodas as informações armazenadas foram removidas."
+  );
 }
 
 // --------------------------------------

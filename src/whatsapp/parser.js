@@ -18,6 +18,8 @@ function extrairDadosWebhook(body) {
   const content = payload?.Content || payload?.content || {};
   const lastMessage = content?.LastMessage || content?.lastMessage || {};
   const contact = content?.Contact || content?.contact || {};
+  const sentBy =
+    lastMessage?.SentByOrganizationMember || lastMessage?.sentByOrganizationMember || {};
 
   return {
     tipoEvento: body?.Type || body?.type || "",
@@ -36,6 +38,8 @@ function extrairDadosWebhook(body) {
       lastMessage?.CreatedAtUTC ||
       lastMessage?.createdAtUTC ||
       null,
+    // id do atendente que enviou a nota (para auditar quem executou comandos)
+    autorId: sentBy.Id || sentBy.id || "",
   };
 }
 

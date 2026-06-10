@@ -240,6 +240,48 @@ async function removerNotaContato(contactId, noteId) {
   }
 }
 
+// --------------------------------------
+// Resolve o NOME de um atendente (organization member) a partir do id, para
+// logs de auditoria. A API não expõe o nome direto; usamos os membros online
+// (que trazem o e-mail) e derivamos o nome do e-mail. Cacheia o mapeamento.
+// Retorna "" se não resolver.
+// --------------------------------------
+
+const _membroCache = new Map();
+
+function nomeDoEmail(email) {
+  const local = String(email || "").split("@")[0];
+  if (!local) return "";
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join(" ");
+}
+
+async function buscarNomeMembro(memberId) {
+  if (!memberId) return "";
+  if (_membroCache.has(memberId)) return _membroCache.get(memberId);
+
+  try {
+    const r = await axios.get("https://app-utalk.umbler.com/api/v1/members/online/", {
+      headers: { Authorization: `Bearer ${env.UMBLER_TOKEN}`, accept: "application/json" },
+      params: { organizationId: env.ORGANIZATION_ID },
+      timeout: 15000,
+    });
+    const arr = Array.isArray(r.data) ? r.data : r.data?.items || r.data?.members || [];
+    for (const m of arr) {
+      const id = m.id || m.Id;
+      const nome = m.name || m.Name || nomeDoEmail(m.emailAddress || m.email || m.EmailAddress);
+      if (id && nome) _membroCache.set(id, nome);
+    }
+  } catch (error) {
+    console.log("⚠️ Erro ao resolver nome do membro:", error.response?.status, error.message);
+  }
+
+  return _membroCache.get(memberId) || "";
+}
+
 module.exports = {
   enviarNotaInterna,
   buscarHistoricoChat,
@@ -249,4 +291,5 @@ module.exports = {
   buscarNotasContato,
   criarNotaContato,
   removerNotaContato,
+  buscarNomeMembro,
 };

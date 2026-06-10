@@ -24,6 +24,7 @@ const {
   buscarNotasContato,
   criarNotaContato,
   removerNotaContato,
+  buscarContatoChat,
 } = require("../services/umbler");
 const {
   buscarDadosEmpresa,
@@ -33,6 +34,7 @@ const {
 } = require("./accon");
 
 const MARCADOR = "=== LOJAS ACCON ===";
+const RODAPE_VALIDACAO = "Última validação da IA:";
 
 // --------------------------------------
 // Helpers puros (parse / serialização / merge)
@@ -40,6 +42,20 @@ const MARCADOR = "=== LOJAS ACCON ===";
 
 function chaveCnpj(cnpj) {
   return String(cnpj || "").replace(/\D/g, "");
+}
+
+// data/hora atual no fuso de Brasília, formato YYYY-MM-DD HH:mm:ss
+function agoraFormatado() {
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(new Date());
 }
 
 // monta o objeto loja a partir da resposta (texto) da API Accon.
@@ -66,8 +82,15 @@ function blocoLoja(l) {
   );
 }
 
-function serializar(lojas) {
-  return `${MARCADOR}\n\n` + lojas.map(blocoLoja).join("\n\n") + "\n";
+// Serializa a nota: lojas + rodapé com a data/hora da última validação da IA
+// (uma informação GLOBAL por contato, mesmo com várias lojas).
+function serializar(lojas, validadoEm) {
+  const ts = validadoEm || agoraFormatado();
+  return (
+    `${MARCADOR}\n\n` +
+    lojas.map(blocoLoja).join("\n\n") +
+    `\n\n${RODAPE_VALIDACAO}\n${ts}\n`
+  );
 }
 
 // extrai um campo "Campo: valor" de um bloco de texto
@@ -182,34 +205,74 @@ async function revalidarLojas(chatId) {
   if (!lojas.length) return [];
 
   const atualizadas = [];
+  let validadas = 0;
   let removidas = 0;
   for (const l of lojas) {
     const r = await revalidarUma(l.cnpj);
-    if (r.valida) atualizadas.push(r.loja); // atualiza versão/IDs
-    else if (!r.definitivo) atualizadas.push(l); // erro transitório -> mantém
-    else removidas++; // inválido confirmado -> remove
+    if (r.valida) {
+      atualizadas.push(r.loja); // atualiza versão/IDs
+      validadas++;
+    } else if (!r.definitivo) {
+      atualizadas.push(l); // erro transitório -> mantém
+    } else {
+      removidas++; // inválido confirmado -> remove
+    }
   }
 
-  await escreverNota(contactId, notas, atualizadas);
-  console.log(
-    `🔄 Lojas revalidadas: ${atualizadas.length} válida(s)` +
-      (removidas ? `, ${removidas} CNPJ inválido(s) removido(s)` : "") +
-      ` (contato ${contactId}).`
-  );
+  // Só reescreve a nota (e atualiza "Última validação da IA") se a API
+  // respondeu — válida (200) ou inválida confirmada (404). Se TODAS deram erro
+  // transitório (API fora), preserva a nota e o carimbo antigos.
+  const houveConsulta = validadas > 0 || removidas > 0;
+  if (houveConsulta) {
+    await escreverNota(contactId, notas, atualizadas);
+    console.log(
+      `🔄 Lojas revalidadas: ${atualizadas.length} válida(s)` +
+        (removidas ? `, ${removidas} CNPJ inválido(s) removido(s)` : "") +
+        ` (contato ${contactId}).`
+    );
+  } else {
+    console.log(
+      `⚠️ Revalidação sem resposta da API (erros transitórios) — nota e carimbo preservados (contato ${contactId}).`
+    );
+  }
 
-  // devolve as lojas atualizadas para carregar no contexto da conversa
+  // devolve as lojas (atualizadas se houve consulta) para o contexto da conversa
   return atualizadas;
+}
+
+// --------------------------------------
+// #limpar: remove COMPLETAMENTE as Observações do contato atual (todas as
+// notas — lojas, validação e qualquer outra informação). Afeta SOMENTE este
+// contato. Retorna { ok, contato, removidas }.
+// --------------------------------------
+
+async function limparObservacoes(chatId) {
+  const contactId = await buscarIdContato(chatId);
+  if (!contactId) return { ok: false, contato: "", removidas: 0 };
+
+  const contato = await buscarContatoChat(chatId);
+  const notas = await buscarNotasContato(contactId);
+
+  let removidas = 0;
+  for (const n of notas) {
+    if (await removerNotaContato(contactId, n.id)) removidas++;
+  }
+
+  return { ok: true, contato, removidas };
 }
 
 module.exports = {
   // orquestração
   salvarLoja,
   revalidarLojas,
+  limparObservacoes,
   montarLoja,
   // puros (testáveis)
   parse,
   serializar,
   upsert,
   chaveCnpj,
+  agoraFormatado,
   MARCADOR,
+  RODAPE_VALIDACAO,
 };
