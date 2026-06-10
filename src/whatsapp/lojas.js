@@ -93,9 +93,11 @@ function serializar(lojas, validadoEm) {
   );
 }
 
-// extrai um campo "Campo: valor" de um bloco de texto
+// extrai um campo "Campo: valor" de um bloco de texto. Usa [ \t] (não \s) para
+// NÃO atravessar quebras de linha — assim um campo vazio não "rouba" o valor da
+// linha seguinte (robustez contra observações corrompidas).
 function campo(bloco, nome) {
-  const m = bloco.match(new RegExp(`${nome}\\s*:\\s*(.+)`, "i"));
+  const m = bloco.match(new RegExp(`${nome}[ \\t]*:[ \\t]*(.+)`, "i"));
   return m ? m[1].trim() : "";
 }
 
@@ -120,6 +122,38 @@ function parse(content) {
     });
   }
   return lojas;
+}
+
+// extrai o carimbo "Última validação da IA" (a data na linha seguinte ao rótulo)
+function extrairValidadoEm(content) {
+  const rotulo = RODAPE_VALIDACAO.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = String(content || "").match(new RegExp(`${rotulo}\\s*\\r?\\n\\s*(.+)`));
+  return m ? m[1].trim() : "";
+}
+
+// monta o texto da nota do comando #lojas (registros válidos + carimbo)
+function formatarRelatorioLojas(lojas, validadoEm) {
+  if (!lojas || !lojas.length) {
+    return (
+      "⚠️ Nenhuma loja cadastrada foi encontrada para este contato.\n\n" +
+      "Utilize um CNPJ válido ou o comando:\n\n" +
+      "#cnpj [CNPJ]\n\n" +
+      "para vincular uma loja ao contato."
+    );
+  }
+
+  const blocos = lojas.map(
+    (l, i) =>
+      `#${i + 1} ${l.nome || "(sem nome)"}\n` +
+      `CNPJ: ${l.cnpj || "N/A"}\n` +
+      `ID 1.0: ${l.id10 || "N/A"}\n` +
+      `ID 2.0: ${l.id20 || "N/A"}\n` +
+      `Versão Atual: ${l.versao || "N/A"}`
+  );
+
+  let texto = "🏪 Lojas cadastradas para este contato\n\n" + blocos.join("\n\n");
+  if (validadoEm) texto += `\n\n${RODAPE_VALIDACAO}\n${validadoEm}`;
+  return texto;
 }
 
 // adiciona uma nova loja ou atualiza a existente (mesmo CNPJ). Nunca remove as demais.
@@ -241,6 +275,22 @@ async function revalidarLojas(chatId) {
 }
 
 // --------------------------------------
+// #lojas: lê as lojas cadastradas nas Observações do contato (somente leitura).
+// Retorna { lojas: [...], validadoEm: "<carimbo>" } — registros válidos apenas.
+// --------------------------------------
+
+async function obterLojasContato(chatId) {
+  const contactId = await buscarIdContato(chatId);
+  if (!contactId) return { lojas: [], validadoEm: "" };
+
+  const notas = await buscarNotasContato(contactId);
+  const nota = notas.find((n) => String(n.content || "").includes(MARCADOR));
+  if (!nota) return { lojas: [], validadoEm: "" };
+
+  return { lojas: parse(nota.content), validadoEm: extrairValidadoEm(nota.content) };
+}
+
+// --------------------------------------
 // #limpar: remove COMPLETAMENTE as Observações do contato atual (todas as
 // notas — lojas, validação e qualquer outra informação). Afeta SOMENTE este
 // contato. Retorna { ok, contato, removidas }.
@@ -266,6 +316,7 @@ module.exports = {
   salvarLoja,
   revalidarLojas,
   limparObservacoes,
+  obterLojasContato,
   montarLoja,
   // puros (testáveis)
   parse,
@@ -273,6 +324,8 @@ module.exports = {
   upsert,
   chaveCnpj,
   agoraFormatado,
+  extrairValidadoEm,
+  formatarRelatorioLojas,
   MARCADOR,
   RODAPE_VALIDACAO,
 };

@@ -60,6 +60,8 @@ const {
   montarLoja,
   revalidarLojas,
   limparObservacoes,
+  obterLojasContato,
+  formatarRelatorioLojas,
   agoraFormatado,
 } = require("./lojas");
 const { gerarTreinamento, treinarManual } = require("./treinamento");
@@ -86,6 +88,7 @@ const MSG_COMANDOS =
   "#desativardoc\n→ Mantém a IA ativa, mas interrompe a documentação automática desta conversa.\n\n" +
   "#treinamento [texto]\n→ Ensina uma nova informação diretamente para a IA. O conteúdo será categorizado e armazenado na base de treinamento para uso futuro.\n\n" +
   "#finalizados\n→ Exibe os 15 atendimentos finalizados mais recentes e informa se cada um foi documentado ou não.\n\n" +
+  "#lojas\n→ Exibe todas as lojas atualmente cadastradas nas Observações do contato.\n\n" +
   "#limpar\n→ Remove completamente todas as informações armazenadas nas Observações do contato atual.\n\n" +
   "#comandos\n→ Exibe esta lista de comandos.";
 
@@ -239,6 +242,7 @@ const COMANDOS = [
   "#resetar",
   "#treinamento",
   "#finalizados",
+  "#lojas",
   "#limpar",
   "#comandos",
 ];
@@ -306,6 +310,11 @@ async function executarComando(chatId, texto, autorId) {
     return;
   }
 
+  if (t.startsWith("#lojas")) {
+    await comandoLojas(chatId, autorId);
+    return;
+  }
+
   if (t.startsWith("#limpar")) {
     await comandoLimpar(chatId, autorId);
     return;
@@ -315,6 +324,37 @@ async function executarComando(chatId, texto, autorId) {
     await enviarNotaInterna(chatId, MSG_COMANDOS);
     return;
   }
+}
+
+// --------------------------------------
+// #lojas -> exibe as lojas cadastradas nas Observações do contato (leitura).
+// Só por nota interna (atendente). Registra log de auditoria.
+// --------------------------------------
+
+async function comandoLojas(chatId, autorId) {
+  let dados;
+  try {
+    dados = await obterLojasContato(chatId);
+  } catch (error) {
+    console.log("❌ Erro ao consultar lojas:", error.message);
+    await enviarNotaInterna(
+      chatId,
+      "❌ Não consegui consultar as lojas agora. Tente novamente em instantes."
+    );
+    return;
+  }
+
+  // LOG de auditoria
+  const autor = (await buscarNomeMembro(autorId)) || autorId || "(atendente)";
+  console.log(
+    `🏪 Ação: Consulta de lojas | Executado por: ${autor} | ` +
+      `Data: ${agoraFormatado()} | Quantidade: ${dados.lojas.length}`
+  );
+
+  await enviarNotaInterna(
+    chatId,
+    formatarRelatorioLojas(dados.lojas, dados.validadoEm)
+  );
 }
 
 // --------------------------------------
