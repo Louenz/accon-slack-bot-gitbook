@@ -9,8 +9,9 @@
 // sensíveis e descarta atendimentos resolvidos por acesso remoto (AnyDesk).
 
 const { openai } = require("../clients");
-const { TREINAMENTO } = require("../config");
+const { TREINAMENTO, PUBLIC_SPACES } = require("../config");
 const categoriasCache = require("./categorias");
+const { searchGitBook, getFullPageContent } = require("../services/gitbook");
 const { buscarHistoricoChat, buscarContatoChat } = require("../services/umbler");
 const { enviarTratativa, lerCategoria } = require("./github");
 const { obterImagemBase64 } = require("./imagem");
@@ -296,11 +297,46 @@ async function classificarCategoria(conversa) {
 }
 
 // --------------------------------------
-// 2) Gera a tratativa (modelo avançado). Recebe as tratativas existentes da
-//    categoria para REAPROVEITAR/ENRIQUECER a equivalente (sem duplicar).
+// Busca a documentação OFICIAL relacionada na Central de Ajuda Accon (SOMENTE
+// LEITURA — searchGitBook só lê) para enriquecer a tratativa. Usa a categoria
+// + o conteúdo do atendimento como consulta. Retorna o texto oficial ou "".
 // --------------------------------------
 
-function promptTratativa(categoria, existentes, manual = false) {
+const MAX_OFICIAL_CHARS = 4000; // limite por página, p/ não estourar o prompt
+
+async function buscarDocsOficiais(texto, categoria) {
+  try {
+    const query = `${categoria} ${String(texto || "").replace(/\s+/g, " ")}`
+      .trim()
+      .slice(0, 500);
+    const docs = await searchGitBook(query, PUBLIC_SPACES); // Central de Ajuda
+    if (!docs || !docs.length) return "";
+
+    const partes = [];
+    for (const d of docs.slice(0, 2)) {
+      let corpo = "";
+      try {
+        corpo = await getFullPageContent(d.spaceId, d.pageId);
+      } catch {}
+      corpo = String(corpo || d.body || "").slice(0, MAX_OFICIAL_CHARS);
+      if (corpo.trim()) partes.push(`[${d.title}]\n${corpo}`);
+    }
+    if (partes.length) {
+      console.log(`📚 Documentação oficial encontrada na Central: ${docs.slice(0, 2).map((d) => d.title).join(", ")}`);
+    }
+    return partes.join("\n\n---\n\n");
+  } catch (error) {
+    console.log("⚠️ Falha ao buscar documentação oficial na Central:", error.message);
+    return "";
+  }
+}
+
+// --------------------------------------
+// 2) Gera a tratativa (modelo avançado). Enriquece com a DOCUMENTAÇÃO OFICIAL
+//    da Central de Ajuda e produz uma base de conhecimento que ENSINA a IA.
+// --------------------------------------
+
+function promptTratativa(categoria, existentes, manual = false, docsOficiais = "") {
   const base =
     existentes && existentes.trim()
       ? `TRATATIVAS JÁ EXISTENTES na categoria "${categoria}" (markdown com expandables <details>):\n\n${existentes}\n`
@@ -321,38 +357,61 @@ CONTEÚDO MULTIMODAL (considere TUDO, não só o texto):
 - A tratativa deve refletir o atendimento REAL, mesmo quando a solução foi demonstrada por imagem ou explicada por áudio (do cliente OU do atendente).
 `;
 
-  return `Você transforma ${fonte} em UMA tratativa de documentação para treinamento interno, na categoria "${categoria}".
+  const oficial =
+    docsOficiais && docsOficiais.trim()
+      ? `DOCUMENTAÇÃO OFICIAL RELACIONADA (Central de Ajuda Accon — use para a seção "Procedimento Oficial" e para enriquecer Diagnóstico, Erros Comuns e Boas Práticas; ADAPTE ao caso, não copie cegamente):\n\n${docsOficiais}\n`
+      : `Não há documentação oficial relacionada disponível. Em "Procedimento Oficial", escreva "Sem referência oficial localizada na Central de Ajuda."\n`;
+
+  return `Você transforma ${fonte} em UMA tratativa para a BASE DE CONHECIMENTO que ENSINA a IA a atender clientes sozinha, na categoria "${categoria}". O objetivo NÃO é só registrar o atendimento — é ENSINAR a IA a resolver esse problema no futuro, alinhada à documentação oficial.
+
+PRIORIDADE DAS FONTES (da mais forte para a mais fraca):
+1. Instrução de especialista (#treinamento), quando for a fonte.
+2. DOCUMENTAÇÃO OFICIAL da Central de Ajuda Accon.
+3. O atendimento real resolvido.
+4. Sua inferência — só para conectar as informações, NUNCA para inventar passos/telas.
 
 REGRAS:
-- Use SOMENTE o que está explícito no conteúdo recebido. NÃO invente passos, telas, menus ou funcionalidades.
-- Anonimize qualquer dado pessoal/identificador que tenha escapado (nomes, telefone, e-mail, CNPJ, CPF, IDs, valores, links). Nunca os inclua.
-- UMA tratativa = UM problema específico. Não misture vários problemas.
+- Use SOMENTE o que está explícito no conteúdo recebido e na documentação oficial. NÃO invente passos, telas, menus ou funcionalidades.
+- Anonimize qualquer dado pessoal/identificador (nomes, telefone, e-mail, CNPJ, CPF, IDs, valores, links). Nunca os inclua.
+- UMA tratativa = UM problema específico.
 ${multimodal}
+${oficial}
 REAPROVEITAMENTO (não duplicar conhecimento):
-${base}- Se a conversa atual corresponde a UMA das tratativas existentes acima, REUTILIZE o título EXATO dela e devolva um conteúdo ENRIQUECIDO (combine o conhecimento existente com o novo, melhorando o diagnóstico e o passo a passo).
-- Se for um problema diferente, crie um título NOVO, curto e específico (ex: "Como resolver erro de autenticação da Tuna").
+${base}- Se a conversa corresponde a UMA das tratativas existentes acima, REUTILIZE o título EXATO e devolva um conteúdo ENRIQUECIDO. Senão, crie um título NOVO, curto e específico (ex: "Como resolver erro de autenticação da Tuna").
 
-CONTEÚDO (markdown com ### nas seções; omita uma seção se a conversa não trouxer a informação):
+ESTRUTURA OBRIGATÓRIA (markdown, use ### nas seções; omita uma seção apenas se realmente não houver informação — EXCETO "Como a IA Deve Responder Futuramente", que é SEMPRE obrigatória):
 ### Problema
 ### Sintomas
-### Causa
-### Como diagnosticar
-### Como resolver
+### Diagnóstico
+### Solução Aplicada
+### Procedimento Oficial
+### Erros Comuns
+### Boas Práticas
+### Como Explicar ao Cliente
+### Como a IA Deve Responder Futuramente
 ### Observações
 
+DETALHES DAS SEÇÕES:
+- "Solução Aplicada": o que de fato resolveu o caso — pergunte-se "o que o atendente fez que resolveu?" e registre.
+- "Procedimento Oficial": o passo a passo conforme a Central de Ajuda Accon (use a documentação oficial fornecida).
+- "Como a IA Deve Responder Futuramente": passo a passo de como a IA deve conduzir o atendimento quando um cliente relatar este problema (ex.: 1. confirmar o cenário; 2. pedir as informações necessárias; 3. verificar a configuração X; 4. orientar conforme o procedimento oficial; 5. confirmar a resolução).
+
 Responda APENAS um JSON válido:
-{ "titulo": "<título da tratativa>", "markdown": "<conteúdo em markdown>" }`;
+{ "titulo": "<título da tratativa>", "markdown": "<conteúdo em markdown com as seções acima>" }`;
 }
 
-async function gerarTratativa(entrada, categoria, existentes, manual = false) {
+async function gerarTratativa(entrada, categoria, existentes, manual = false, docsOficiais = "") {
   const r = await openai.chat.completions.create({
     model: "gpt-4.1",
     messages: [
-      { role: "system", content: promptTratativa(categoria, existentes, manual) },
+      {
+        role: "system",
+        content: promptTratativa(categoria, existentes, manual, docsOficiais),
+      },
       { role: "user", content: entrada },
     ],
     temperature: 0.2,
-    max_tokens: 1800,
+    max_tokens: 3000,
     response_format: { type: "json_object" },
   });
 
@@ -406,10 +465,13 @@ async function gerarTreinamento(chatId, desde) {
     existentes = await lerCategoria(categoria);
   } catch {}
 
-  // 3) gera (ou enriquece) a tratativa
+  // 2.1) documentação OFICIAL relacionada (Central de Ajuda) para enriquecer
+  const docsOficiais = await buscarDocsOficiais(conversa, categoria);
+
+  // 3) gera (ou enriquece) a tratativa, alinhada ao procedimento oficial
   let dados;
   try {
-    dados = await gerarTratativa(conversa, categoria, existentes);
+    dados = await gerarTratativa(conversa, categoria, existentes, false, docsOficiais);
   } catch (error) {
     console.log("❌ Erro ao gerar treinamento (IA):", error.message);
     return { status: "erro" };
@@ -457,9 +519,11 @@ async function treinarManual(textoExpert) {
     existentes = await lerCategoria(categoria);
   } catch {}
 
+  const docsOficiais = await buscarDocsOficiais(texto, categoria);
+
   let dados;
   try {
-    dados = await gerarTratativa(texto, categoria, existentes, true);
+    dados = await gerarTratativa(texto, categoria, existentes, true, docsOficiais);
   } catch (error) {
     console.log("❌ Erro no treinamento manual (IA):", error.message);
     return { status: "erro" };
@@ -483,4 +547,5 @@ module.exports = {
   montarConversaComMidia,
   gerarTratativa,
   classificarCategoria,
+  buscarDocsOficiais,
 };
