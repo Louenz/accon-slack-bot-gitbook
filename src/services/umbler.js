@@ -162,9 +162,91 @@ async function buscarContatoChat(chatId) {
   }
 }
 
+// ======================================
+// OBSERVAÇÕES DO CONTATO (notas) — armazenamento persistente das lojas
+// ======================================
+
+const CONTACTS_URL = "https://app-utalk.umbler.com/api/v1/contacts";
+
+// id do contato a partir do chat (necessário para ler/gravar as notas)
+async function buscarIdContato(chatId) {
+  try {
+    const r = await axios.get(
+      `https://app-utalk.umbler.com/api/v1/chats/${chatId}/`,
+      {
+        headers: { Authorization: `Bearer ${env.UMBLER_TOKEN}`, accept: "application/json" },
+        params: { organizationId: env.ORGANIZATION_ID, includeMessages: 0 },
+        timeout: 15000,
+      }
+    );
+    const c = r.data?.contact || r.data?.Contact || {};
+    return c.id || c.Id || "";
+  } catch (error) {
+    console.log("⚠️ Erro ao obter id do contato:", error.response?.status, error.message);
+    return "";
+  }
+}
+
+// lista as notas (observações) do contato -> [{ id, content }]
+async function buscarNotasContato(contactId) {
+  try {
+    const r = await axios.get(`${CONTACTS_URL}/${contactId}/notes/`, {
+      headers: { Authorization: `Bearer ${env.UMBLER_TOKEN}`, accept: "application/json" },
+      params: { organizationId: env.ORGANIZATION_ID },
+      timeout: 15000,
+    });
+    const arr = Array.isArray(r.data) ? r.data : r.data?.items || r.data?.notes || [];
+    return arr.map((n) => ({ id: n.id || n.Id, content: n.content || n.Content || "" }));
+  } catch (error) {
+    console.log("⚠️ Erro ao ler notas do contato:", error.response?.status, error.message);
+    return [];
+  }
+}
+
+// cria uma nota (observação) no contato
+async function criarNotaContato(contactId, content) {
+  try {
+    await axios.post(
+      `${CONTACTS_URL}/${contactId}/notes/`,
+      { content, organizationId: env.ORGANIZATION_ID },
+      {
+        headers: {
+          Authorization: `Bearer ${env.UMBLER_TOKEN}`,
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        timeout: 15000,
+      }
+    );
+    return true;
+  } catch (error) {
+    console.log("❌ Erro ao criar nota do contato:", error.response?.status, error.message);
+    return false;
+  }
+}
+
+// remove uma nota do contato
+async function removerNotaContato(contactId, noteId) {
+  try {
+    await axios.delete(`${CONTACTS_URL}/${contactId}/notes/${noteId}/`, {
+      headers: { Authorization: `Bearer ${env.UMBLER_TOKEN}`, accept: "application/json" },
+      params: { organizationId: env.ORGANIZATION_ID },
+      timeout: 15000,
+    });
+    return true;
+  } catch (error) {
+    console.log("❌ Erro ao remover nota do contato:", error.response?.status, error.message);
+    return false;
+  }
+}
+
 module.exports = {
   enviarNotaInterna,
   buscarHistoricoChat,
   listarChatsFinalizados,
   buscarContatoChat,
+  buscarIdContato,
+  buscarNotasContato,
+  criarNotaContato,
+  removerNotaContato,
 };

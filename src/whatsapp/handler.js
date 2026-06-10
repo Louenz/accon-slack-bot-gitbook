@@ -51,6 +51,7 @@ const { obterImagemBase64 } = require("./imagem");
 const { transcreverAudio } = require("./audio");
 const { agendarProcessamento, limparBuffer } = require("./buffer");
 const { calcularInicioContexto } = require("./contexto");
+const { salvarLoja, montarLoja, revalidarLojas } = require("./lojas");
 const { gerarTreinamento, treinarManual } = require("./treinamento");
 const {
   gerarRelatorioFinalizados,
@@ -119,6 +120,11 @@ async function handleWebhook(body) {
       const desde = await calcularInicioContexto(chatId, eventAt);
       iniciarDoc(chatId, desde);
     }
+    // novo atendimento: revalida as lojas conhecidas do contato na API Accon e
+    // atualiza as Observações (assíncrono, não bloqueia o atendimento).
+    revalidarLojas(chatId).catch((error) =>
+      console.log("⚠️ Falha ao revalidar lojas:", error.message)
+    );
     return;
   }
   if (limpo && ehGatilhoFimDoc(limpo)) {
@@ -338,7 +344,8 @@ async function comandoCnpj(chatId, texto) {
   }
 
   const versao = detectarVersaoAccon(dados);
-  const nome = extrairNomeEmpresa(dados) || "(não informado)";
+  const nomeApi = extrairNomeEmpresa(dados); // "" se a API não trouxe dados válidos
+  const nome = nomeApi || "(não informado)";
 
   // vincula os dados à conversa; não pede o CNPJ novamente
   definirContexto(chatId, { empresa: { cnpj, dados, versao, nome } });
@@ -347,6 +354,16 @@ async function comandoCnpj(chatId, texto) {
     chatId,
     `✅ Dados coletados com sucesso.\n\nEmpresa:\n${nome}\n\nCNPJ:\n${cnpj}\n\nVersão:\n${versao}`
   );
+
+  // persiste a loja nas Observações do contato (cache/histórico) — SOMENTE se a
+  // API retornou dados válidos (tem nome de loja). CNPJ inválido é ignorado.
+  if (nomeApi) {
+    try {
+      await salvarLoja(chatId, montarLoja(dados, cnpj));
+    } catch (error) {
+      console.log("⚠️ Falha ao salvar loja nas observações:", error.message);
+    }
+  }
 }
 
 // --------------------------------------

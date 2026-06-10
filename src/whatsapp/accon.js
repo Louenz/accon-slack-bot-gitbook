@@ -60,8 +60,24 @@ function detectarVersaoAccon(textoApi) {
   return "2.0";
 }
 
+// --------------------------------------
+// Extrai o ID da loja por versão a partir do texto da API:
+//   "MerchantID (1.0): 609030..."  /  "MerchantID (2.0): 424"
+// Retorna "N/A" se ausente ou vazio.
+// --------------------------------------
+
+function extrairIdLoja(textoApi, versao) {
+  const v = String(versao).replace(".", "\\.");
+  const m = String(textoApi || "").match(
+    new RegExp(`MerchantID\\s*\\(\\s*${v}\\s*\\)\\s*:\\s*(.+)`, "i")
+  );
+  const val = m ? m[1].trim() : "";
+  return val && !/^n\/?a$/i.test(val) ? val : "N/A";
+}
+
 module.exports = {
   buscarDadosEmpresa,
   extrairNomeEmpresa,
   detectarVersaoAccon,
+  extrairIdLoja,
 };
