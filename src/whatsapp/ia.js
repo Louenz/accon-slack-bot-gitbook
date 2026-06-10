@@ -27,9 +27,10 @@ REGRAS:
 CONTEXTO (use sempre, nesta ordem de prioridade):
 1. DADOS DA EMPRESA (cadastro, versão, integrações) — leve em conta ao responder.
 2. HISTÓRICO RECENTE da conversa — entenda o assunto em andamento; a mensagem atual é continuação dele.
-3. IMAGENS enviadas (prints de erro, telas, configurações) — interprete-as no contexto da conversa, nunca como pedido isolado.
-4. DOCUMENTAÇÃO da Accon.
-NUNCA responda analisando apenas a última mensagem de forma isolada.
+3. ÁUDIOS enviados (transcrições da fala do cliente) — trate como fala do próprio cliente, parte da mensagem atual.
+4. IMAGENS enviadas (prints de erro, telas, configurações) — interprete-as no contexto da conversa, nunca como pedido isolado.
+5. DOCUMENTAÇÃO da Accon.
+Texto, áudio e imagem formam UMA ÚNICA solicitação — combine tudo. NUNCA responda analisando apenas a última mensagem de forma isolada.
 
 Responda como um especialista humano: claro, objetivo e organizado. Se faltar informação para resolver com segurança, peça o que falta antes de prosseguir.`;
 
@@ -39,6 +40,7 @@ async function gerarRespostaIA({
   transcricao = "",
   dadosEmpresa = "",
   imagens = [],
+  audios = [],
 }) {
   try {
     const docsText = docs
@@ -47,10 +49,23 @@ async function gerarRespostaIA({
       )
       .join("\n\n");
 
+    const audiosText = (audios || [])
+      .filter(Boolean)
+      .map((a, i) => `(áudio ${i + 1}) ${a}`)
+      .join("\n");
+
+    // descreve as mídias presentes para a IA nunca tratar como pedido isolado
+    const semTexto = !pergunta
+      ? audiosText
+        ? "(somente áudio — veja a transcrição acima)"
+        : "(somente imagem, sem texto)"
+      : pergunta;
+
     const partesTexto = [
       dadosEmpresa ? `DADOS DA EMPRESA:\n${dadosEmpresa}` : "",
       transcricao ? `HISTÓRICO RECENTE DA CONVERSA:\n${transcricao}` : "",
-      `MENSAGEM ATUAL DO CLIENTE:\n${pergunta || "(somente imagem, sem texto)"}`,
+      audiosText ? `ÁUDIOS DO CLIENTE (transcritos):\n${audiosText}` : "",
+      `MENSAGEM ATUAL DO CLIENTE:\n${semTexto}`,
       `DOCUMENTAÇÃO DISPONÍVEL:\n${docsText || "(nenhum documento encontrado)"}`,
     ]
       .filter(Boolean)

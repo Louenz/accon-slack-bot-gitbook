@@ -12,7 +12,13 @@ const { openai } = require("../clients");
 const { TREINAMENTO } = require("../config");
 const { buscarHistoricoChat } = require("../services/umbler");
 const { enviarTratativa, lerCategoria } = require("./github");
+const { obterImagemBase64 } = require("./imagem");
+const { transcreverAudio } = require("./audio");
 const persistencia = require("./persistencia");
+
+// teto de mídias (áudio/imagem) processadas por atendimento ao documentar,
+// para limitar custo/tempo na finalização.
+const MAX_MIDIA_DOC = 8;
 
 // --------------------------------------
 // Data de uma mensagem (várias chaves possíveis)
@@ -83,6 +89,111 @@ function montarConversaTreinamento(mensagens, desde) {
     const autor = origem === "Member" ? "ATENDENTE" : "CLIENTE";
 
     conversa += `[${autor}] ${txt}\n`;
+  }
+
+  return conversa.trim();
+}
+
+// --------------------------------------
+// Descreve, de forma curta e objetiva, o conteúdo relevante de uma imagem
+// (erro, tela, alerta) para incorporar à documentação. Não inventa nada.
+// --------------------------------------
+
+async function descreverImagemParaDoc(file) {
+  try {
+    const img = await obterImagemBase64(file);
+    if (!img) return "";
+
+    const r = await openai.chat.completions.create({
+      model: "gpt-4.1",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Você descreve, de forma objetiva e curta (1-3 frases), o que aparece em um print de suporte técnico: mensagens de erro, telas, alertas, configurações. Foque no que ajuda a diagnosticar o problema. Não invente. NÃO inclua dados pessoais (nomes, telefone, e-mail, CPF, CNPJ).",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Descreva o conteúdo relevante desta imagem para documentação de suporte:",
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${img.contentType || "image/png"};base64,${img.base64}`,
+              },
+            },
+          ],
+        },
+      ],
+      temperature: 0,
+      max_tokens: 200,
+    });
+
+    return (r.choices[0].message.content || "").trim();
+  } catch (error) {
+    console.log("⚠️ Falha ao descrever imagem para doc:", error.message);
+    return "";
+  }
+}
+
+// --------------------------------------
+// Igual ao montarConversaTreinamento, mas ENRIQUECE a conversa com a
+// transcrição dos áudios e a descrição das imagens enviadas — para que a
+// documentação reflita também o que veio em mídia (quando relevante).
+// --------------------------------------
+
+async function montarConversaComMidia(mensagens, desde) {
+  const ordenadas = [...mensagens].sort(
+    (a, b) => new Date(dataMsg(a)) - new Date(dataMsg(b))
+  );
+
+  const ehGatilho = (txt) =>
+    TREINAMENTO.DOC_INICIO.some((f) => txt.includes(f)) ||
+    TREINAMENTO.DOC_FIM.some((f) => txt.includes(f));
+
+  let conversa = "";
+  let midias = 0;
+
+  for (const m of ordenadas) {
+    // ignora notas internas (inclui respostas da IA, que são privadas)
+    if (m?.isPrivate || m?.IsPrivate) continue;
+
+    // só dentro da janela do treinamento
+    const ts = Date.parse(dataMsg(m));
+    if (desde && !Number.isNaN(ts) && ts < desde) continue;
+
+    const origem = m?.source || m?.Source;
+    const autor = origem === "Member" ? "ATENDENTE" : "CLIENTE";
+
+    // texto
+    const txt = (m?.content || m?.Content || "").trim();
+    if (txt && !txt.startsWith("#") && !ehGatilho(txt)) {
+      conversa += `[${autor}] ${txt}\n`;
+    }
+
+    // mídia (áudio/imagem), respeitando o teto
+    const file = m?.file || m?.File;
+    if (file && midias < MAX_MIDIA_DOC) {
+      const ct = String(file.contentType || file.ContentType || "").toLowerCase();
+      if (ct.startsWith("audio/")) {
+        const t = await transcreverAudio(file);
+        if (t) {
+          conversa += `[${autor} - áudio] ${t}\n`;
+          midias++;
+          console.log("🎧 (doc) áudio transcrito incorporado à documentação");
+        }
+      } else if (ct.startsWith("image/")) {
+        const d = await descreverImagemParaDoc(file);
+        if (d) {
+          conversa += `[${autor} - imagem] ${d}\n`;
+          midias++;
+          console.log("🖼️ (doc) imagem descrita incorporada à documentação");
+        }
+      }
+    }
   }
 
   return conversa.trim();
@@ -205,7 +316,7 @@ async function gerarTreinamento(chatId, desde) {
     });
   }
 
-  const conversaBruta = montarConversaTreinamento(historico, desde);
+  const conversaBruta = await montarConversaComMidia(historico, desde);
   if (!conversaBruta) return { status: "vazio" };
 
   // filtro AnyDesk: não documenta atendimento resolvido por acesso remoto
@@ -291,4 +402,5 @@ module.exports = {
   anonimizar,
   usouAcessoRemoto,
   montarConversaTreinamento,
+  montarConversaComMidia,
 };

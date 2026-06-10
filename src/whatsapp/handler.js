@@ -48,6 +48,7 @@ const {
 } = require("./accon");
 const { gerarRespostaIA } = require("./ia");
 const { obterImagemBase64 } = require("./imagem");
+const { transcreverAudio } = require("./audio");
 const { agendarProcessamento, limparBuffer } = require("./buffer");
 const { gerarTreinamento, treinarManual } = require("./treinamento");
 const {
@@ -161,11 +162,22 @@ async function handleWebhook(body) {
     return;
   }
 
-  // loja 2.0 -> agrupa (texto + imagem) e processa após a janela de espera
+  // loja 2.0 -> agrupa (texto + imagem + áudio transcrito) e processa após a
+  // janela de espera. Texto, imagem e áudio compõem UMA única solicitação.
   const imagem = await obterImagemBase64(file);
-  if (!limpo && !imagem) return;
+  if (imagem) {
+    console.log(
+      `🖼️ Imagem processada (${imagem.contentType}) — enviada ao modelo multimodal.`
+    );
+  }
+  const transcricao = await transcreverAudio(file);
+  if (!limpo && !imagem && !transcricao) return;
 
-  agendarProcessamento(chatId, { texto: limpo, imagem }, processarAgrupado);
+  agendarProcessamento(
+    chatId,
+    { texto: limpo, imagem, transcricao },
+    processarAgrupado
+  );
 }
 
 // ======================================
@@ -425,8 +437,11 @@ function montarTranscricao(mensagens, resetEm = 0) {
     .join("\n");
 }
 
-async function processarAgrupado({ chatId, pergunta, imagens }) {
-  if (!pergunta && (!imagens || imagens.length === 0)) return;
+async function processarAgrupado({ chatId, pergunta, imagens, transcricoes }) {
+  const audios = transcricoes || [];
+  if (!pergunta && (!imagens || imagens.length === 0) && audios.length === 0) {
+    return;
+  }
 
   // PRIORIDADE 1: dados da empresa (API Accon), já coletados na sessão
   const ctx = obterContexto(chatId);
@@ -440,8 +455,11 @@ async function processarAgrupado({ chatId, pergunta, imagens }) {
     transcricao = montarTranscricao(mensagens, ctx.resetEm || 0);
   } catch {}
 
-  // PRIORIDADE 4: documentação (apenas spaces públicos — Central de Ajuda)
-  let docs = await searchGitBook(pergunta || "", PUBLIC_SPACES);
+  // PRIORIDADE 4: documentação (apenas spaces públicos — Central de Ajuda).
+  // A busca usa texto + transcrições de áudio (essencial quando o cliente
+  // manda só áudio, sem texto).
+  const textoBusca = [pergunta, ...audios].filter(Boolean).join(" ").trim();
+  let docs = await searchGitBook(textoBusca, PUBLIC_SPACES);
   if (docs[0]) {
     const fullPage = await getFullPageContent(docs[0].spaceId, docs[0].pageId);
     if (fullPage) {
@@ -449,13 +467,14 @@ async function processarAgrupado({ chatId, pergunta, imagens }) {
     }
   }
 
-  // PRIORIDADE 5: resposta da IA (texto + imagens)
+  // PRIORIDADE 5: resposta da IA (texto + áudios transcritos + imagens)
   let resposta = await gerarRespostaIA({
     pergunta,
     docs,
     transcricao,
     dadosEmpresa,
     imagens,
+    audios,
   });
 
   resposta = cleanText(resposta);

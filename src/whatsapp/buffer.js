@@ -14,15 +14,16 @@ const { WHATSAPP } = require("../config");
 
 const buffers = new Map();
 
-function agendarProcessamento(chatId, { texto, imagem }, processar) {
+function agendarProcessamento(chatId, { texto, imagem, transcricao }, processar) {
   let buf = buffers.get(chatId);
   if (!buf) {
-    buf = { textos: [], imagens: [], timer: null };
+    buf = { textos: [], imagens: [], transcricoes: [], timer: null };
     buffers.set(chatId, buf);
   }
 
   if (texto) buf.textos.push(texto);
   if (imagem) buf.imagens.push(imagem);
+  if (transcricao) buf.transcricoes.push(transcricao); // áudios já transcritos
 
   // reinicia a contagem a cada nova mensagem
   if (buf.timer) clearTimeout(buf.timer);
@@ -33,7 +34,12 @@ function agendarProcessamento(chatId, { texto, imagem }, processar) {
     const pergunta = buf.textos.join(" ").replace(/\s+/g, " ").trim();
 
     Promise.resolve(
-      processar({ chatId, pergunta, imagens: buf.imagens })
+      processar({
+        chatId,
+        pergunta,
+        imagens: buf.imagens,
+        transcricoes: buf.transcricoes,
+      })
     ).catch((error) =>
       console.log("❌ Erro no processamento agrupado:", error.message)
     );
