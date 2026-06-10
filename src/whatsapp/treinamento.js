@@ -10,7 +10,7 @@
 
 const { openai } = require("../clients");
 const { TREINAMENTO } = require("../config");
-const { buscarHistoricoChat } = require("../services/umbler");
+const { buscarHistoricoChat, buscarContatoChat } = require("../services/umbler");
 const { enviarTratativa, lerCategoria } = require("./github");
 const { obterImagemBase64 } = require("./imagem");
 const { transcreverAudio } = require("./audio");
@@ -368,6 +368,10 @@ async function gerarTreinamento(chatId, desde) {
 
   if (!titulo || !markdown) return { status: "vazio" };
 
+  // nome do contato — usado SOMENTE para nomear o arquivo local (o conteúdo
+  // já está anonimizado). Não vai para o GitBook.
+  const contato = await buscarContatoChat(chatId);
+
   // salva a documentação gerada em disco ANTES de enviar ao GitBook — se o
   // GitHub falhar ou o servidor reiniciar, a doc gerada não se perde.
   persistencia.salvarDocGerada(chatId, {
@@ -375,6 +379,7 @@ async function gerarTreinamento(chatId, desde) {
     categoria,
     titulo,
     markdown,
+    contato,
     geradoEm: new Date().toISOString(),
   });
 

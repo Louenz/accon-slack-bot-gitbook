@@ -130,8 +130,41 @@ async function listarChatsFinalizados(take = 15) {
   }
 }
 
+// --------------------------------------
+// Retorna o nome do contato de um chat (ex.: "João - Donna Toscana").
+// Usado APENAS para nomear o arquivo de documentação local (o conteúdo
+// permanece anônimo). Retorna "" em caso de erro.
+// --------------------------------------
+
+async function buscarContatoChat(chatId) {
+  try {
+    const response = await axios.get(
+      `https://app-utalk.umbler.com/api/v1/chats/${chatId}/`,
+      {
+        headers: {
+          Authorization: `Bearer ${env.UMBLER_TOKEN}`,
+          accept: "application/json",
+        },
+        params: { organizationId: env.ORGANIZATION_ID, includeMessages: 0 },
+        timeout: 15000,
+      }
+    );
+    const data = response.data || {};
+    const contato = data.contact || data.Contact || {};
+    return contato.name || contato.Name || "";
+  } catch (error) {
+    console.log(
+      "⚠️ Não foi possível obter o nome do contato:",
+      error.response?.status,
+      error.message
+    );
+    return "";
+  }
+}
+
 module.exports = {
   enviarNotaInterna,
   buscarHistoricoChat,
   listarChatsFinalizados,
+  buscarContatoChat,
 };

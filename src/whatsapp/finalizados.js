@@ -15,7 +15,7 @@
 //   #finalizados hoje             -> apenas os finalizados hoje
 
 const { listarChatsFinalizados } = require("../services/umbler");
-const { documentacaoExiste } = require("./persistencia");
+const { chatsDocumentados } = require("./persistencia");
 
 const LIMITE_PADRAO = 15;
 const TAKE_MAXIMO = 250; // teto da API (maxTake)
@@ -135,9 +135,11 @@ async function gerarRelatorioFinalizados({ limite = LIMITE_PADRAO, filtro = "tod
 
   const chats = await listarChatsFinalizados(take);
 
+  // varre o disco UMA vez e marca quais chats já têm documentação
+  const documentados = chatsDocumentados();
   let lista = chats.map((c) => ({
     ...c,
-    documentado: documentacaoExiste(c.chatId),
+    documentado: documentados.has(c.chatId),
   }));
 
   if (filtro === "nao-documentados") lista = lista.filter((c) => !c.documentado);
