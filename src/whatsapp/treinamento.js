@@ -8,9 +8,9 @@
 // (ignora notas internas, respostas da IA e comandos), anonimiza dados
 // sensíveis e descarta atendimentos resolvidos por acesso remoto (AnyDesk).
 
-const axios = require("axios");
 const { openai } = require("../clients");
-const { env, TREINAMENTO, GITBOOK } = require("../config");
+const { TREINAMENTO } = require("../config");
+const categoriasCache = require("./categorias");
 const { buscarHistoricoChat, buscarContatoChat } = require("../services/umbler");
 const { enviarTratativa, lerCategoria } = require("./github");
 const { obterImagemBase64 } = require("./imagem");
@@ -212,71 +212,24 @@ async function montarConversaComMidia(mensagens, desde) {
   return conversa.trim();
 }
 
-// --------------------------------------
-// Lê a estrutura de categorias da Central de Ajuda Accon (SOMENTE LEITURA) para
-// usar como referência de classificação. Cacheia por 1h. Nunca escreve.
-// Retorna [{ nome, subs: [...] }].
-// --------------------------------------
-
-let _catCache = null;
-let _catCacheEm = 0;
-const CAT_TTL = 60 * 60 * 1000; // 1 hora
-
-async function obterCategoriasCentral() {
-  if (_catCache && Date.now() - _catCacheEm < CAT_TTL) return _catCache;
-  try {
-    const r = await axios.get(
-      `https://api.gitbook.com/v1/spaces/${GITBOOK.CENTRAL_AJUDA_SPACE_ID}/content`,
-      { headers: { Authorization: `Bearer ${env.GITBOOK_TOKEN}` }, timeout: 15000 }
-    );
-    const pages = r.data?.pages || [];
-    const tree = pages
-      .map((p) => ({
-        nome: String(p.title || "").trim(),
-        subs: (p.pages || []).map((s) => String(s.title || "").trim()).filter(Boolean),
-      }))
-      .filter((c) => c.nome);
-    if (tree.length) {
-      _catCache = tree;
-      _catCacheEm = Date.now();
-    }
-    return tree;
-  } catch (error) {
-    console.log(
-      "⚠️ Não consegui ler categorias da Central de Ajuda:",
-      error.response?.status,
-      error.message
-    );
-    return _catCache || [];
-  }
-}
-
-function formatarCategorias(tree) {
-  return tree
-    .map((c) => (c.subs.length ? `- ${c.nome}: ${c.subs.join(", ")}` : `- ${c.nome}`))
+function formatarCategorias(categorias) {
+  return categorias
+    .map((c) =>
+      c.subs && c.subs.length
+        ? `- ${c.nome}: ${c.subs.map((s) => s.nome).join(", ")}`
+        : `- ${c.nome}`
+    )
     .join("\n");
 }
 
-// --------------------------------------
-// 1) Classifica a categoria ESPELHANDO a Central de Ajuda Accon: identifica o
-//    tema, procura a categoria/subcategoria mais compatível na Central e usa o
-//    nome exato dela. Só cria categoria nova se nenhuma representar o assunto.
-// --------------------------------------
-
-async function classificarCategoria(conversa) {
-  const tree = await obterCategoriasCentral();
-  const usouCentral = tree.length > 0;
-  const lista = usouCentral
-    ? formatarCategorias(tree)
-    : TREINAMENTO.CATEGORIAS.map((c) => `- ${c}`).join("\n");
-
-  try {
-    const r = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
-        {
-          role: "system",
-          content: `Você classifica um atendimento de suporte da Accon em UMA categoria, ESPELHANDO a organização da Central de Ajuda Accon (referência oficial de nomes).
+// chamada única ao modelo: classifica com base na lista fornecida
+async function chamarClassificador(conversa, lista) {
+  const r = await openai.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Você classifica um atendimento de suporte da Accon em UMA categoria, ESPELHANDO a organização da Central de Ajuda Accon (referência oficial de nomes).
 
 CATEGORIAS DISPONÍVEIS (formato "Categoria: subcategorias"):
 ${lista}
@@ -290,23 +243,49 @@ REGRAS (nesta ordem de prioridade):
 
 Responda APENAS um JSON válido:
 { "tema": "<assunto principal em 1-3 palavras>", "categoriaCentral": "<categoria/subcategoria da lista que combina, ou string vazia se nenhuma>", "categoria": "<categoria a USAR>", "nova": <true se for categoria nova, false se veio da lista> }`,
-        },
-        { role: "user", content: conversa },
-      ],
-      temperature: 0,
-      max_tokens: 150,
-      response_format: { type: "json_object" },
-    });
+      },
+      { role: "user", content: conversa },
+    ],
+    temperature: 0,
+    max_tokens: 150,
+    response_format: { type: "json_object" },
+  });
+  return JSON.parse(r.choices[0].message.content || "{}");
+}
 
-    const d = JSON.parse(r.choices[0].message.content || "{}");
+// --------------------------------------
+// 1) Classifica a categoria ESPELHANDO a Central de Ajuda Accon, consultando
+//    primeiro o CACHE LOCAL. Se nenhuma categoria compatível for encontrada,
+//    reconsulta a Central direto, atualiza o cache e tenta de novo.
+// --------------------------------------
+
+async function classificarCategoria(conversa) {
+  let categorias = await categoriasCache.obterCategorias();
+  let origem = "Cache Local";
+  const lista = categorias.length
+    ? formatarCategorias(categorias)
+    : TREINAMENTO.CATEGORIAS.map((c) => `- ${c}`).join("\n");
+
+  try {
+    let d = await chamarClassificador(conversa, lista);
+
+    // não achou compatível -> reconsulta a Central, atualiza o cache e tenta de novo
+    if (d.nova) {
+      const frescas = await categoriasCache.atualizarCache();
+      origem = "Consulta Direta Central de Ajuda";
+      if (frescas.length) {
+        d = await chamarClassificador(conversa, formatarCategorias(frescas));
+      }
+    }
+
     const categoria = String(d.categoria || "").trim() || "Dúvidas";
 
     // AUDITORIA da categorização
     console.log(
-      `🗂️ Categorização (${usouCentral ? "Central de Ajuda" : "lista padrão - Central indisponível"}):\n` +
+      `🗂️ Categorização:\n` +
         `   Tema identificado: ${d.tema || "(?)"}\n` +
-        `   Categoria encontrada na Central: ${d.categoriaCentral || "(nenhuma)"}\n` +
-        `   Categoria utilizada: ${categoria}${d.nova ? " (NOVA)" : ""}`
+        `   Categoria encontrada: ${d.categoria || "(?)"}${d.nova ? " (NOVA)" : ""}\n` +
+        `   Origem: ${origem}`
     );
 
     return categoria;
@@ -504,5 +483,4 @@ module.exports = {
   montarConversaComMidia,
   gerarTratativa,
   classificarCategoria,
-  obterCategoriasCentral,
 };

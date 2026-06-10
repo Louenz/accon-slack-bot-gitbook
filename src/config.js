@@ -35,6 +35,9 @@ const env = {
   // GitHub (escrita do treinamento no repo Git-Synced ao GitBook) — SÓ WhatsApp
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GITHUB_REPO_TREINAMENTO: process.env.GITHUB_REPO_TREINAMENTO,
+
+  // hora (0-23) do refresh diário do cache de categorias da Central — SÓ WhatsApp
+  CACHE_CATEGORIAS_HORA: process.env.CACHE_CATEGORIAS_HORA,
 };
 
 // --------------------------------------

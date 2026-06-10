@@ -12,6 +12,7 @@ const { env } = require("../config");
 const { jaProcessado } = require("./dedupe");
 const { handleWebhook } = require("./handler");
 const { restaurarEstadosDoc } = require("./session");
+const { iniciarCacheCategorias } = require("./categorias");
 
 function startUmblerServer() {
   // restaura atendimentos em documentação que ficaram em aberto antes de um
@@ -22,6 +23,9 @@ function startUmblerServer() {
       `📂 ${restaurados} atendimento(s) em documentação restaurado(s) do disco.`
     );
   }
+
+  // cache local das categorias da Central de Ajuda (carrega + agenda refresh diário)
+  iniciarCacheCategorias();
 
   const app = express();
 
