@@ -50,6 +50,7 @@ const { gerarRespostaIA } = require("./ia");
 const { obterImagemBase64 } = require("./imagem");
 const { transcreverAudio } = require("./audio");
 const { agendarProcessamento, limparBuffer } = require("./buffer");
+const { calcularInicioContexto } = require("./contexto");
 const { gerarTreinamento, treinarManual } = require("./treinamento");
 const {
   gerarRelatorioFinalizados,
@@ -112,8 +113,12 @@ async function handleWebhook(body) {
   //  - FIM: o atendimento é encerrado -> gera a documentação.
   // --------------------------------------
   if (limpo && ehGatilhoInicioDoc(limpo)) {
-    // recua a janela p/ capturar o contexto enviado ANTES da transferência
-    if (!docEstaBloqueado(chatId)) iniciarDoc(chatId, eventAt);
+    // procura o INÍCIO REAL do problema antes da transferência (lookback
+    // inteligente, limitado a CONTEXT_LOOKBACK_MINUTES) e começa a captura lá.
+    if (!docEstaBloqueado(chatId)) {
+      const desde = await calcularInicioContexto(chatId, eventAt);
+      iniciarDoc(chatId, desde);
+    }
     return;
   }
   if (limpo && ehGatilhoFimDoc(limpo)) {

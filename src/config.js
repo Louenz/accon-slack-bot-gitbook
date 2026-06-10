@@ -51,10 +51,10 @@ const WHATSAPP = {
   EXIT: ["0", "sair", "menu"],
   // janela de espera antes de processar (agrupa mensagens/imagens seguidas)
   DEBOUNCE_MS: Number(process.env.WA_DEBOUNCE_MS) || 10000,
-  // ao iniciar a documentação (transferência p/ Suporte), recua a janela este
-  // tanto de minutos para capturar a dúvida/prints/áudios enviados ANTES da
-  // transferência. Configurável via CONTEXT_LOOKBACK_MINUTES (padrão 5).
-  CONTEXT_LOOKBACK_MINUTES: Number(process.env.CONTEXT_LOOKBACK_MINUTES) || 5,
+  // limite (em minutos) para a busca do INÍCIO do problema antes da
+  // transferência ao Suporte — e também o fallback, caso o início não seja
+  // identificado claramente. Configurável via CONTEXT_LOOKBACK_MINUTES (padrão 15).
+  CONTEXT_LOOKBACK_MINUTES: Number(process.env.CONTEXT_LOOKBACK_MINUTES) || 15,
 };
 
 // --------------------------------------
