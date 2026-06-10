@@ -17,8 +17,8 @@ const { transcreverAudio } = require("./audio");
 const persistencia = require("./persistencia");
 
 // teto de mídias (áudio/imagem) processadas por atendimento ao documentar,
-// para limitar custo/tempo na finalização.
-const MAX_MIDIA_DOC = 8;
+// para limitar custo/tempo na finalização. Vale para cliente E atendente.
+const MAX_MIDIA_DOC = 12;
 
 // --------------------------------------
 // Data de uma mensagem (várias chaves possíveis)
@@ -96,13 +96,20 @@ function montarConversaTreinamento(mensagens, desde) {
 
 // --------------------------------------
 // Descreve, de forma curta e objetiva, o conteúdo relevante de uma imagem
-// (erro, tela, alerta) para incorporar à documentação. Não inventa nada.
+// para incorporar à documentação. Ciente do autor: imagem do CLIENTE costuma
+// mostrar o problema/erro; imagem do ATENDENTE costuma mostrar a solução,
+// a configuração correta ou a orientação. Não inventa nada.
 // --------------------------------------
 
-async function descreverImagemParaDoc(file) {
+async function descreverImagemParaDoc(file, autor = "CLIENTE") {
   try {
     const img = await obterImagemBase64(file);
     if (!img) return "";
+
+    const foco =
+      autor === "ATENDENTE"
+        ? "Esta imagem foi enviada pelo ATENDENTE: capture a orientação, a configuração correta, o passo a passo ou a solução demonstrada."
+        : "Esta imagem foi enviada pelo CLIENTE: capture o erro, a tela com problema, o alerta ou o sintoma.";
 
     const r = await openai.chat.completions.create({
       model: "gpt-4.1",
@@ -110,14 +117,14 @@ async function descreverImagemParaDoc(file) {
         {
           role: "system",
           content:
-            "Você descreve, de forma objetiva e curta (1-3 frases), o que aparece em um print de suporte técnico: mensagens de erro, telas, alertas, configurações. Foque no que ajuda a diagnosticar o problema. Não invente. NÃO inclua dados pessoais (nomes, telefone, e-mail, CPF, CNPJ).",
+            "Você descreve, de forma objetiva e curta (1-3 frases), o conteúdo relevante de um print de suporte técnico (mensagens de erro, telas, configurações, orientações). Não invente. NÃO inclua dados pessoais (nomes, telefone, e-mail, CPF, CNPJ).",
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Descreva o conteúdo relevante desta imagem para documentação de suporte:",
+              text: `${foco}\nDescreva o conteúdo relevante desta imagem para documentação de suporte:`,
             },
             {
               type: "image_url",
@@ -186,11 +193,13 @@ async function montarConversaComMidia(mensagens, desde) {
           console.log("🎧 (doc) áudio transcrito incorporado à documentação");
         }
       } else if (ct.startsWith("image/")) {
-        const d = await descreverImagemParaDoc(file);
+        const d = await descreverImagemParaDoc(file, autor);
         if (d) {
           conversa += `[${autor} - imagem] ${d}\n`;
           midias++;
-          console.log("🖼️ (doc) imagem descrita incorporada à documentação");
+          console.log(
+            `🖼️ (doc) imagem do ${autor.toLowerCase()} descrita incorporada à documentação`
+          );
         }
       }
     }
@@ -248,13 +257,24 @@ function promptTratativa(categoria, existentes, manual = false) {
     ? "uma INSTRUÇÃO de um especialista humano da equipe Accon (conhecimento validado, de ALTA prioridade)"
     : "um atendimento de suporte REAL da Accon";
 
+  // Orientação multimodal só faz sentido no fluxo de conversa (não no #treinamento manual)
+  const multimodal = manual
+    ? ""
+    : `
+CONTEÚDO MULTIMODAL (considere TUDO, não só o texto):
+- A conversa pode trazer linhas marcadas como [CLIENTE - áudio], [CLIENTE - imagem], [ATENDENTE - áudio] e [ATENDENTE - imagem]. Trate-as como parte integral do atendimento.
+- O CLIENTE traz o PROBLEMA: erro, sintoma, print do erro, áudio relatando a falha.
+- O ATENDENTE traz o DIAGNÓSTICO e a SOLUÇÃO: orientações, a configuração correta (em imagem), o procedimento e a explicação (em áudio). Use isso para "Como diagnosticar" e "Como resolver".
+- A tratativa deve refletir o atendimento REAL, mesmo quando a solução foi demonstrada por imagem ou explicada por áudio (do cliente OU do atendente).
+`;
+
   return `Você transforma ${fonte} em UMA tratativa de documentação para treinamento interno, na categoria "${categoria}".
 
 REGRAS:
 - Use SOMENTE o que está explícito no conteúdo recebido. NÃO invente passos, telas, menus ou funcionalidades.
 - Anonimize qualquer dado pessoal/identificador que tenha escapado (nomes, telefone, e-mail, CNPJ, CPF, IDs, valores, links). Nunca os inclua.
 - UMA tratativa = UM problema específico. Não misture vários problemas.
-
+${multimodal}
 REAPROVEITAMENTO (não duplicar conhecimento):
 ${base}- Se a conversa atual corresponde a UMA das tratativas existentes acima, REUTILIZE o título EXATO dela e devolva um conteúdo ENRIQUECIDO (combine o conhecimento existente com o novo, melhorando o diagnóstico e o passo a passo).
 - Se for um problema diferente, crie um título NOVO, curto e específico (ex: "Como resolver erro de autenticação da Tuna").
@@ -403,4 +423,5 @@ module.exports = {
   usouAcessoRemoto,
   montarConversaTreinamento,
   montarConversaComMidia,
+  gerarTratativa,
 };
