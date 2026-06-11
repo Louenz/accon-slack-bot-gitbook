@@ -75,9 +75,21 @@ function extrairIdLoja(textoApi, versao) {
   return val && !/^n\/?a$/i.test(val) ? val : "N/A";
 }
 
+// --------------------------------------
+// Extrai um campo "Rótulo: valor" qualquer do texto da API (uma linha).
+// Ex.: extrairCampoApi(txt, "Status da assinatura") -> "Ativa".
+// --------------------------------------
+
+function extrairCampoApi(textoApi, rotulo) {
+  const r = String(rotulo).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = String(textoApi || "").match(new RegExp(`${r}[ \\t]*:[ \\t]*(.+)`, "i"));
+  return m ? m[1].trim() : "";
+}
+
 module.exports = {
   buscarDadosEmpresa,
   extrairNomeEmpresa,
   detectarVersaoAccon,
   extrairIdLoja,
+  extrairCampoApi,
 };

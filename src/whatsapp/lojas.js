@@ -31,6 +31,7 @@ const {
   extrairNomeEmpresa,
   detectarVersaoAccon,
   extrairIdLoja,
+  extrairCampoApi,
 } = require("./accon");
 
 const MARCADOR = "=== LOJAS ACCON ===";
@@ -58,9 +59,14 @@ function agoraFormatado() {
   }).format(new Date());
 }
 
+// converte data DD/MM/AAAA -> AAAA-MM-DD (mantém o original se não casar)
+function converterData(d) {
+  const m = String(d || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d || "");
+}
+
 // monta o objeto loja a partir da resposta (texto) da API Accon.
-// `dados` (texto bruto) fica em memória para a IA usar — NÃO é persistido na
-// nota (blocoLoja/serializar só gravam os 5 campos estruturados).
+// `dados` (texto bruto) fica em memória para a IA usar — NÃO é persistido na nota.
 function montarLoja(dadosApi, cnpjFormatado) {
   return {
     nome: extrairNomeEmpresa(dadosApi) || "(não informado)",
@@ -68,6 +74,10 @@ function montarLoja(dadosApi, cnpjFormatado) {
     id10: extrairIdLoja(dadosApi, "1.0"),
     id20: extrairIdLoja(dadosApi, "2.0"),
     versao: detectarVersaoAccon(dadosApi),
+    status: extrairCampoApi(dadosApi, "Status da assinatura") || "N/A",
+    proximoPagamento:
+      converterData(extrairCampoApi(dadosApi, "Data do próximo pagamento")) || "N/A",
+    linkPagamento: extrairCampoApi(dadosApi, "Link do próximo pagamento") || "N/A",
     dados: dadosApi,
   };
 }
@@ -78,7 +88,10 @@ function blocoLoja(l) {
     `CNPJ: ${l.cnpj}\n` +
     `ID 1.0: ${l.id10 || "N/A"}\n` +
     `ID 2.0: ${l.id20 || "N/A"}\n` +
-    `Versão Atual: ${l.versao || "N/A"}`
+    `Versão Atual: ${l.versao || "N/A"}\n` +
+    `Status da Assinatura: ${l.status || "N/A"}\n` +
+    `Próximo Pagamento: ${l.proximoPagamento || "N/A"}\n` +
+    `Link do Próximo Pagamento: ${l.linkPagamento || "N/A"}`
   );
 }
 
@@ -119,6 +132,9 @@ function parse(content) {
       id10: campo(b, "ID 1\\.0") || "N/A",
       id20: campo(b, "ID 2\\.0") || "N/A",
       versao: campo(b, "Versão Atual") || campo(b, "Versao Atual") || "",
+      status: campo(b, "Status da Assinatura") || campo(b, "Status da assinatura") || "",
+      proximoPagamento: campo(b, "Próximo Pagamento") || campo(b, "Proximo Pagamento") || "",
+      linkPagamento: campo(b, "Link do Próximo Pagamento") || campo(b, "Link do Proximo Pagamento") || "",
     });
   }
   return lojas;
@@ -142,14 +158,18 @@ function formatarRelatorioLojas(lojas, validadoEm) {
     );
   }
 
-  const blocos = lojas.map(
-    (l, i) =>
+  const blocos = lojas.map((l, i) => {
+    let t =
       `#${i + 1} ${l.nome || "(sem nome)"}\n` +
       `CNPJ: ${l.cnpj || "N/A"}\n` +
       `ID 1.0: ${l.id10 || "N/A"}\n` +
       `ID 2.0: ${l.id20 || "N/A"}\n` +
-      `Versão Atual: ${l.versao || "N/A"}`
-  );
+      `Versão Atual: ${l.versao || "N/A"}\n` +
+      `Status da Assinatura: ${l.status || "N/A"}`;
+    if (l.proximoPagamento && l.proximoPagamento !== "N/A") t += `\nPróximo Pagamento: ${l.proximoPagamento}`;
+    if (l.linkPagamento && l.linkPagamento !== "N/A") t += `\nLink do Próximo Pagamento: ${l.linkPagamento}`;
+    return t;
+  });
 
   let texto = "🏪 Lojas cadastradas para este contato\n\n" + blocos.join("\n\n");
   if (validadoEm) texto += `\n\n${RODAPE_VALIDACAO}\n${validadoEm}`;

@@ -134,27 +134,9 @@ async function handleWebhook(body) {
       const desde = await calcularInicioContexto(chatId, eventAt);
       iniciarDoc(chatId, desde);
     }
-    // novo atendimento: revalida as lojas conhecidas do contato na API Accon,
-    // atualiza as Observações e CARREGA as lojas no contexto da conversa para a
-    // IA já identificar o cliente sem precisar de #cnpj.
-    try {
-      const lojasContato = await revalidarLojas(chatId);
-      if (lojasContato && lojasContato.length) {
-        definirContexto(chatId, { lojas: lojasContato });
-        // 1 loja só -> seleciona automaticamente (dispensa #cnpj)
-        if (lojasContato.length === 1 && !obterContexto(chatId).empresa) {
-          const l = lojasContato[0];
-          definirContexto(chatId, {
-            empresa: { cnpj: l.cnpj, dados: l.dados || "", versao: l.versao, nome: l.nome },
-          });
-          console.log(`🏬 Loja única carregada no contexto: ${l.nome} (v${l.versao}).`);
-        } else if (lojasContato.length > 1) {
-          console.log(`🏬 ${lojasContato.length} lojas do contato carregadas no contexto.`);
-        }
-      }
-    } catch (error) {
-      console.log("⚠️ Falha ao revalidar/carregar lojas:", error.message);
-    }
+    // novo atendimento: revalida as lojas conhecidas do contato na API Accon e
+    // carrega no contexto da conversa (dispensa #cnpj).
+    await carregarLojasContato(chatId);
     return;
   }
   if (limpo && ehGatilhoFimDoc(limpo)) {
@@ -279,10 +261,13 @@ async function executarComando(chatId, texto, autorId) {
 
   if (t.startsWith("#ativar")) {
     ativarModoIA(chatId);
-    await enviarNotaInterna(
-      chatId,
-      "🤖 Respostas automáticas da IA ativadas nesta conversa (como nota interna)."
-    );
+    // lê as Observações do contato, revalida as lojas na API e carrega no
+    // contexto — se já houver CNPJ salvo, NÃO pede o CNPJ de novo.
+    const lojas = await carregarLojasContato(chatId);
+    const msg = lojas.length
+      ? `🤖 IA ativada. ${lojas.length} loja(s) já cadastrada(s) no contato — carregada(s) e revalidada(s) na API. Não é preciso informar o CNPJ.`
+      : "🤖 IA ativada. Nenhuma loja cadastrada neste contato — use *#cnpj [CNPJ]* para vincular uma loja.";
+    await enviarNotaInterna(chatId, msg);
     return;
   }
 
@@ -579,6 +564,35 @@ function montarTranscricao(mensagens, resetEm = 0) {
     .filter(Boolean)
     .slice(-20)
     .join("\n");
+}
+
+// --------------------------------------
+// Revalida as lojas do contato na API Accon (lendo as Observações) e carrega
+// no contexto da conversa. Auto-seleciona quando há 1 loja. Retorna o array
+// (vazio se o contato não tiver loja cadastrada). Usado no início do
+// atendimento e no #ativar — evita pedir CNPJ quando já existe um salvo.
+// --------------------------------------
+
+async function carregarLojasContato(chatId) {
+  try {
+    const lojasContato = await revalidarLojas(chatId);
+    if (lojasContato && lojasContato.length) {
+      definirContexto(chatId, { lojas: lojasContato });
+      if (lojasContato.length === 1 && !obterContexto(chatId).empresa) {
+        const l = lojasContato[0];
+        definirContexto(chatId, {
+          empresa: { cnpj: l.cnpj, dados: l.dados || "", versao: l.versao, nome: l.nome },
+        });
+        console.log(`🏬 Loja única carregada no contexto: ${l.nome} (v${l.versao}).`);
+      } else if (lojasContato.length > 1) {
+        console.log(`🏬 ${lojasContato.length} lojas do contato carregadas no contexto.`);
+      }
+    }
+    return lojasContato || [];
+  } catch (error) {
+    console.log("⚠️ Falha ao revalidar/carregar lojas:", error.message);
+    return [];
+  }
 }
 
 async function processarAgrupado({ chatId, pergunta, imagens, transcricoes }) {

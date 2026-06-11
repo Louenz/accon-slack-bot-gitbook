@@ -61,6 +61,7 @@ async function gerarRespostaIA({
       .map(
         (l) =>
           `- ${l.nome} | CNPJ ${l.cnpj} | versão ${l.versao || "?"}` +
+          `${l.status && l.status !== "N/A" ? ` | assinatura ${l.status}` : ""}` +
           `${l.id20 && l.id20 !== "N/A" ? ` | ID 2.0 ${l.id20}` : ""}` +
           `${l.id10 && l.id10 !== "N/A" ? ` | ID 1.0 ${l.id10}` : ""}`
       )
