@@ -454,13 +454,14 @@ async function gerarTreinamento(chatId, desde) {
   const conversaBruta = await montarConversaComMidia(historico, desde);
   if (!conversaBruta) return { status: "vazio" };
 
-  // filtro AnyDesk: não documenta atendimento resolvido por acesso remoto
-  if (usouAcessoRemoto(conversaBruta)) return { status: "anydesk" };
+  // atendimento resolvido por acesso remoto (AnyDesk) -> documenta na categoria
+  // fixa "Anydesk" (antes era descartado).
+  const viaAnydesk = usouAcessoRemoto(conversaBruta);
 
   const conversa = anonimizar(conversaBruta);
 
-  // 1) categoria
-  const categoria = await classificarCategoria(conversa);
+  // 1) categoria — AnyDesk vai sempre para a categoria "Anydesk"
+  const categoria = viaAnydesk ? "Anydesk" : await classificarCategoria(conversa);
 
   // 2) tratativas já existentes na categoria (para enriquecer / não duplicar)
   let existentes = "";
