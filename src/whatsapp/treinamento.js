@@ -241,9 +241,10 @@ REGRAS (nesta ordem de prioridade):
 3. Prefira a SUBCATEGORIA mais específica quando ela combinar (ex.: "Robô WhatsApp" em vez de "Delivery"; "Notas fiscais" em vez de "Fiscal"; "Integrações de marketplace" para iFood/marketplace).
 4. NÃO use categorias genéricas inventadas (ex.: "Outros", "Problemas Gerais", "Configurações") se houver uma compatível acima.
 5. Só crie uma categoria NOVA quando NENHUMA acima representar o assunto.
+6. O campo "categoria" deve conter SOMENTE o nome da categoria/subcategoria escolhida (a folha), exatamente como aparece na lista. NUNCA combine o pai com a subcategoria — ERRADO: "Delivery: Robô WhatsApp"; CERTO: "Robô WhatsApp".
 
 Responda APENAS um JSON válido:
-{ "tema": "<assunto principal em 1-3 palavras>", "categoriaCentral": "<categoria/subcategoria da lista que combina, ou string vazia se nenhuma>", "categoria": "<categoria a USAR>", "nova": <true se for categoria nova, false se veio da lista> }`,
+{ "tema": "<assunto principal em 1-3 palavras>", "categoriaCentral": "<categoria/subcategoria da lista que combina, ou string vazia se nenhuma>", "categoria": "<SOMENTE o nome da categoria a USAR, sem o pai>", "nova": <true se for categoria nova, false se veio da lista> }`,
       },
       { role: "user", content: conversa },
     ],
