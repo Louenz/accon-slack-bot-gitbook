@@ -38,6 +38,10 @@ const env = {
 
   // hora (0-23) do refresh diário do cache de categorias da Central — SÓ WhatsApp
   CACHE_CATEGORIAS_HORA: process.env.CACHE_CATEGORIAS_HORA,
+
+  // intervalo (min) da rotina de reconciliação que documenta atendimentos
+  // finalizados que o webhook ao vivo perdeu (padrão 20) — SÓ WhatsApp
+  RECONCILIACAO_MINUTOS: process.env.RECONCILIACAO_MINUTOS,
 };
 
 // --------------------------------------

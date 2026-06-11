@@ -13,6 +13,7 @@ const { jaProcessado } = require("./dedupe");
 const { handleWebhook } = require("./handler");
 const { restaurarEstadosDoc } = require("./session");
 const { iniciarCacheCategorias } = require("./categorias");
+const { iniciarReconciliacao } = require("./reconciliacao");
 
 function startUmblerServer() {
   // restaura atendimentos em documentação que ficaram em aberto antes de um
@@ -26,6 +27,9 @@ function startUmblerServer() {
 
   // cache local das categorias da Central de Ajuda (carrega + agenda refresh diário)
   iniciarCacheCategorias();
+
+  // rede de segurança: documenta atendimentos finalizados que o webhook perdeu
+  iniciarReconciliacao();
 
   const app = express();
 
