@@ -202,24 +202,63 @@ async function escreverNota(contactId, notasAtuais, lojas) {
 }
 
 // --------------------------------------
-// #cnpj: salva/atualiza UMA loja validada nas observações do contato.
+// Trava por contato: serializa o read-modify-write da nota, evitando que
+// #cnpj/revalidação simultâneos leiam o mesmo estado e sobrescrevam um ao outro
+// (race condition que apagava as lojas já cadastradas).
+// --------------------------------------
+
+const _locks = new Map();
+function comLock(chave, fn) {
+  const anterior = _locks.get(chave) || Promise.resolve();
+  const atual = anterior.then(fn, fn); // executa após a operação anterior terminar
+  _locks.set(
+    chave,
+    atual.then(
+      () => {},
+      () => {}
+    )
+  );
+  return atual;
+}
+
+// lê TODAS as notas LOJAS do contato e junta num único array (robusto a notas
+// duplicadas que tenham sobrado de gravações concorrentes antigas).
+function lojasDasNotas(notas) {
+  const lojas = [];
+  for (const n of notas) {
+    if (String(n.content || "").includes(MARCADOR)) {
+      for (const l of parse(n.content)) upsert(lojas, l);
+    }
+  }
+  return lojas;
+}
+
+// --------------------------------------
+// #cnpj: ADICIONA ou ATUALIZA uma loja nas observações do contato, SEM remover
+// as demais (cadastro acumulativo). Serializado por trava p/ não haver race.
 // --------------------------------------
 
 async function salvarLoja(chatId, loja) {
   const contactId = await buscarIdContato(chatId);
   if (!contactId) return false;
 
-  const notas = await buscarNotasContato(contactId);
-  const notaLojas = notas.find((n) => String(n.content || "").includes(MARCADOR));
-  const lojas = notaLojas ? parse(notaLojas.content) : [];
+  return comLock(contactId, async () => {
+    const notas = await buscarNotasContato(contactId);
+    const lojas = lojasDasNotas(notas); // todas as lojas já cadastradas
 
-  upsert(lojas, loja);
-  await escreverNota(contactId, notas, lojas);
+    const antes = lojas.length;
+    const jaExistia = lojas.some((l) => chaveCnpj(l.cnpj) === chaveCnpj(loja.cnpj));
+    upsert(lojas, loja); // adiciona nova OU atualiza a de mesmo CNPJ
+    const depois = lojas.length;
 
-  console.log(
-    `🏬 Loja salva nas observações do contato: ${loja.nome} (${loja.cnpj}) v${loja.versao}`
-  );
-  return true;
+    await escreverNota(contactId, notas, lojas);
+
+    // AUDITORIA
+    console.log(
+      `🏬 #cnpj | Lojas antes: ${antes} | ${jaExistia ? "Loja atualizada" : "Loja adicionada"}: ${loja.nome} (${loja.cnpj}) | Lojas após: ${depois}`
+    );
+    return true;
+  });
 }
 
 // --------------------------------------
@@ -251,47 +290,45 @@ async function revalidarLojas(chatId) {
   const contactId = await buscarIdContato(chatId);
   if (!contactId) return [];
 
-  const notas = await buscarNotasContato(contactId);
-  const notaLojas = notas.find((n) => String(n.content || "").includes(MARCADOR));
-  if (!notaLojas) return []; // contato sem lojas cadastradas -> nada a fazer
+  return comLock(contactId, async () => {
+    const notas = await buscarNotasContato(contactId);
+    const lojas = lojasDasNotas(notas); // todas as lojas cadastradas
+    if (!lojas.length) return []; // contato sem lojas -> nada a fazer
 
-  const lojas = parse(notaLojas.content);
-  if (!lojas.length) return [];
-
-  const atualizadas = [];
-  let validadas = 0;
-  let removidas = 0;
-  for (const l of lojas) {
-    const r = await revalidarUma(l.cnpj);
-    if (r.valida) {
-      atualizadas.push(r.loja); // atualiza versão/IDs
-      validadas++;
-    } else if (!r.definitivo) {
-      atualizadas.push(l); // erro transitório -> mantém
-    } else {
-      removidas++; // inválido confirmado -> remove
+    const atualizadas = [];
+    let validadas = 0;
+    let removidas = 0;
+    for (const l of lojas) {
+      const r = await revalidarUma(l.cnpj);
+      if (r.valida) {
+        atualizadas.push(r.loja); // atualiza versão/IDs/assinatura
+        validadas++;
+      } else if (!r.definitivo) {
+        atualizadas.push(l); // erro transitório -> mantém
+      } else {
+        removidas++; // inválido confirmado -> remove
+      }
     }
-  }
 
-  // Só reescreve a nota (e atualiza "Última validação da IA") se a API
-  // respondeu — válida (200) ou inválida confirmada (404). Se TODAS deram erro
-  // transitório (API fora), preserva a nota e o carimbo antigos.
-  const houveConsulta = validadas > 0 || removidas > 0;
-  if (houveConsulta) {
-    await escreverNota(contactId, notas, atualizadas);
-    console.log(
-      `🔄 Lojas revalidadas: ${atualizadas.length} válida(s)` +
-        (removidas ? `, ${removidas} CNPJ inválido(s) removido(s)` : "") +
-        ` (contato ${contactId}).`
-    );
-  } else {
-    console.log(
-      `⚠️ Revalidação sem resposta da API (erros transitórios) — nota e carimbo preservados (contato ${contactId}).`
-    );
-  }
+    // Só reescreve a nota (e atualiza "Última validação da IA") se a API
+    // respondeu — válida (200) ou inválida confirmada (404). Se TODAS deram erro
+    // transitório (API fora), preserva a nota e o carimbo antigos.
+    const houveConsulta = validadas > 0 || removidas > 0;
+    if (houveConsulta) {
+      await escreverNota(contactId, notas, atualizadas);
+      console.log(
+        `🔄 Lojas revalidadas: ${atualizadas.length} válida(s)` +
+          (removidas ? `, ${removidas} CNPJ inválido(s) removido(s)` : "") +
+          ` (contato ${contactId}).`
+      );
+    } else {
+      console.log(
+        `⚠️ Revalidação sem resposta da API (erros transitórios) — nota e carimbo preservados (contato ${contactId}).`
+      );
+    }
 
-  // devolve as lojas (atualizadas se houve consulta) para o contexto da conversa
-  return atualizadas;
+    return atualizadas;
+  });
 }
 
 // --------------------------------------
@@ -321,14 +358,15 @@ async function limparObservacoes(chatId) {
   if (!contactId) return { ok: false, contato: "", removidas: 0 };
 
   const contato = await buscarContatoChat(chatId);
-  const notas = await buscarNotasContato(contactId);
 
-  let removidas = 0;
-  for (const n of notas) {
-    if (await removerNotaContato(contactId, n.id)) removidas++;
-  }
-
-  return { ok: true, contato, removidas };
+  return comLock(contactId, async () => {
+    const notas = await buscarNotasContato(contactId);
+    let removidas = 0;
+    for (const n of notas) {
+      if (await removerNotaContato(contactId, n.id)) removidas++;
+    }
+    return { ok: true, contato, removidas };
+  });
 }
 
 module.exports = {
